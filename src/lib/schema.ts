@@ -1,15 +1,13 @@
-import { pgTable, serial, varchar, decimal, timestamp, text } from 'drizzle-orm/postgres-js';
+import { mysqlTable, varchar, decimal, timestamp } from 'drizzle-orm/mysql-core';
 
-export const trades = pgTable('trades', {
-  id: serial('id').primaryKey(),
-  wallet: varchar('wallet', { length: 255 }).notNull(),
-  tokenIn: varchar('token_in', { length: 100 }).notNull(),
-  tokenOut: varchar('token_out', { length: 100 }).notNull(),
-  amountIn: decimal('amount_in', { precision: 20, scale: 9 }).notNull(),
-  amountOut: decimal('amount_out', { precision: 20, scale: 9 }),
-  txId: text('tx_id'),
-  status: varchar('status', { length: 50 }).notNull(),
-  buyPrice: decimal('buy_price', { precision: 20, scale: 9 }),
-  targetSellPrice: decimal('target_sell_price', { precision: 20, scale: 9 }),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+export const trades = mysqlTable('trades', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  user_id: varchar('user_id', { length: 48 }).notNull(),
+  token_mint: varchar('token_mint', { length: 48 }).notNull(),
+  amount: decimal('amount', { precision: 20, scale: 9 }).notNull(),
+  buy_price: decimal('buy_price', { precision: 20, scale: 9 }).notNull(),
+  profit: decimal('profit', { precision: 20, scale: 9 }),
+  status: varchar('status', { length: 20 }).default('open'),
+  created_at: timestamp('created_at').defaultNow(),
+  sold_at: timestamp('sold_at'),
 });
