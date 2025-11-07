@@ -1,15 +1,9 @@
 import { drizzle } from 'drizzle-orm/mysql2';
 import mysql from 'mysql2/promise';
 import { positions } from './schema';
-import { eq } from 'drizzle-orm';
-
-const connection = mysql.createPool(process.env.DATABASE_URL!);
-export const db = drizzle(connection);
-import { drizzle } from 'drizzle-orm/mysql2';
-import mysql from 'mysql2/promise';
-import { positions } from './schema';
 import { eq, and, isNull } from 'drizzle-orm';
 
+// Create DB connection
 const connection = mysql.createPool(process.env.DATABASE_URL!);
 export const db = drizzle(connection);
 
