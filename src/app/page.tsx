@@ -217,13 +217,42 @@ function AppContent() {
 
     // Track profit (simplified)
     setTimeout(async () => {
-      const balance = await connection.getTokenAccountBalance(new PublicKey(arb.id));
-      const profit = ((balance.value.uiAmount || 0) * arb.price - 0.1).toFixed(4);
-      await fetch("/api/telegram/profit", {
-        method: "POST",
-        body: JSON.stringify({ profit, token: arb.name, sig }),
-      });
-    }, 30000); // Check after 30s
+  try {
+    // Get current token price from Jupiter
+    const priceRes = await fetch(
+      `https://price.jup.ag/v6/price?ids=${arb.id}`
+    );
+    const priceData = await priceRes.json();
+    const currentPrice = priceData.data[arb.id]?.price || 0;
+
+    // Get token balance
+    const accounts = await connection.getTokenAccountsByOwner(publicKey!, {
+      mint: new PublicKey(arb.id),
+    });
+
+    if (accounts.value.length === 0) return;
+
+    const balance = await connection.getTokenAccountBalance(accounts.value[0].pubkey);
+    const amount = balance.value.uiAmount || 0;
+
+    // Calculate profit (in USD)
+    const entryValue = 0.1; // 0.1 SOL entry
+    const currentValue = amount * currentPrice;
+    const profitUsd = (currentValue - entryValue).toFixed(4);
+
+    await fetch("/api/telegram/profit", {
+      method: "POST",
+      body: JSON.stringify({
+        profit: profitUsd,
+        token: arb.name,
+        sig,
+        amount: amount.toFixed(4),
+      }),
+    });
+  } catch (err) {
+    console.error("Profit check failed:", err);
+  }
+}, 30000); // Check after 30s
 
     alert(`Bought ${arb.name}! Tx: ${sig}`);
   } catch (err: any) {
