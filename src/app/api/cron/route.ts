@@ -54,7 +54,7 @@ export async function GET() {
     const profitPct = ((currentPrice - buyPrice) / buyPrice) * 100;
 
     if (profitPct >= 5) {
-      const amountLamports = BigInt(Math.floor(parseFloat(trade.amount) * 1e9)).toString();
+      const amountLamports = BigInt(Math.floor(parseFloat(trade.buy_amount) * 1e9)).toString();
       const sig = await executeSellViaJupiter(trade.token_mint, amountLamports);
       if (sig) {
         await markTradeAsSold(trade.id, profitPct);
