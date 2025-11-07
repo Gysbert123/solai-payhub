@@ -1,17 +1,8 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  reactStrictMode: true,
-  swcMinify: true,
-  experimental: {
-    appDocumentPreloading: true,
-  },
-  webpack: (config) => {
-    config.resolve.fallback = {
-      ...config.resolve.fallback,
-      fs: false,
-    };
-    return config;
-  },
-};
+import { NextResponse } from 'next/server';
 
-export default nextConfig;
+export async function GET() {
+  return NextResponse.json({
+    message: 'Balance endpoint - coming soon',
+    timestamp: new Date().toISOString(),
+  });
+}
