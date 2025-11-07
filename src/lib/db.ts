@@ -17,6 +17,10 @@ export async function markTradeAsSold(id: number, profit: number) {
   status: 'sold' as const, 
   profit: profit.toFixed(6),
   sold_at: new Date()
+}) 
+  status: 'sold' as const, 
+  profit: profit.toFixed(6),
+  sold_at: new Date()
 })
     .where(eq(trades.id, id));
 }
