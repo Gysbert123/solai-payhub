@@ -50,7 +50,7 @@ export async function GET() {
     const currentPrice = await getCurrentPrice(trade.token_mint);
     if (!currentPrice) continue;
 
-    const buyPrice = parseFloat(trade.buy_price);
+    const buyPrice = parseFloat(trade.entry_sol);
     const profitPct = ((currentPrice - buyPrice) / buyPrice) * 100;
 
     if (profitPct >= 5) {
