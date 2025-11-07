@@ -5,6 +5,13 @@ import { eq } from 'drizzle-orm';
 
 const connection = mysql.createPool(process.env.DATABASE_URL!);
 export const db = drizzle(connection);
+import { drizzle } from 'drizzle-orm/mysql2';
+import mysql from 'mysql2/promise';
+import { positions } from './schema';
+import { eq, and, isNull } from 'drizzle-orm';
+
+const connection = mysql.createPool(process.env.DATABASE_URL!);
+export const db = drizzle(connection);
 
 // Save a new buy position
 export async function savePosition(
@@ -22,8 +29,16 @@ export async function savePosition(
   });
 }
 
-// Mark position as sold with profit
-export async function markAsSold(id: string, profit: number) {
+// Get all open positions
+export async function getOpenTrades() {
+  return await db
+    .select()
+    .from(positions)
+    .where(and(eq(positions.status, 'open'), isNull(positions.sold_at)));
+}
+
+// Mark position as sold
+export async function markTradeAsSold(id: string, profit: number) {
   await db
     .update(positions)
     .set({
