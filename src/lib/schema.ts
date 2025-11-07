@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, decimal, timestamp, text } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, decimal, timestamp, text } from 'drizzle-orm/postgres-js';
 
 export const trades = pgTable('trades', {
   id: serial('id').primaryKey(),
