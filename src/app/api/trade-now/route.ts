@@ -1,42 +1,42 @@
+import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { trades } from '@/lib/schema';
-import { NextRequest } from 'next/server';
-import { getTokenBalance } from '@/lib/solana';
+import { trades } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 
-export async function POST(req: NextRequest) {
-  const { wallet, tokenIn, tokenOut, amountIn } = await req.json();
+export async function POST(request: Request) {
+  const body = await request.json();
+  const { user_id, token_mint, amount, buy_price } = body;
 
-  // Simulate buy (replace with Jupiter swap later)
-  const txId = `simulated_${Date.now()}`;
+  if (!user_id || !token_mint || !amount || !buy_price) {
+    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+  }
 
-  const [result] = await db.insert(trades).values({
-    wallet,
-    tokenIn,
-    tokenOut,
-    amountIn,
-    amountOut: amountIn * 1.0, // placeholder
-    txId,
-    status: 'bought',
-    buyPrice: 1.0,
-    targetSellPrice: 1.05,
-    createdAt: new Date(),
-  }).returning();
+  try {
+    const result = await db
+      .insert(trades)
+      .values({
+        user_id,
+        token_mint,
+        amount: amount.toString(),
+        buy_price: buy_price.toString(),
+      })
+      .returning();
 
-  // Start auto-sell monitor in background
-  monitorSell(result.id);
+    const newTrade = result[0];
 
-  return Response.json({ success: true, tradeId: result.id, txId });
-}
-
-async function monitorSell(tradeId: number) {
-  setInterval(async () => {
-    const trade = await db.select().from(trades).where({ id: tradeId }).then(r => r[0]);
-    if (!trade) return;
-
-    const currentPrice = await getCurrentPrice(trade.tokenOut); // implement later
-    if (currentPrice >= trade.targetSellPrice) {
-      // trigger sell via Jupiter
-      await db.update(trades).set({ status: 'sold' }).where({ id: tradeId });
-    }
-  }, 5000);
+    return NextResponse.json({
+      success: true,
+      trade: {
+        id: newTrade.id,
+        user_id: newTrade.user_id,
+        token_mint: newTrade.token_mint,
+        amount: newTrade.amount,
+        buy_price: newTrade.buy_price,
+        status: newTrade.status,
+      },
+    });
+  } catch (error) {
+    console.error('Trade insert failed:', error);
+    return NextResponse.json({ error: 'Failed to save trade' }, { status: 500 });
+  }
 }
