@@ -7,7 +7,10 @@ const sql = neon(process.env.DATABASE_URL!);
 export const db = drizzle(sql);
 
 export async function getOpenTrades() {
-  return await db.select().from(trades).where(eq(trades.status, 'open'));
+  return await db
+    .select()
+    .from(trades)
+    .where(eq(trades.status, 'open'));
 }
 
 export async function markTradeAsSold(id: number, profit: number) {
