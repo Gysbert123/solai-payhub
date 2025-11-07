@@ -9,18 +9,36 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/pay": "^0.2.6",
+    "@solana/wallet-adapter-base": "^0.9.27",
+    "@solana/wallet-adapter-react": "^0.15.39",
+    "@solana/wallet-adapter-react-ui": "^0.9.39",
+    "@solana/wallet-adapter-wallets": "^0.19.37",
+    "@solana/web3.js": "^1.98.4",
+    "axios": "^1.13.2",
+    "bs58": "^6.0.0",
+    "decimal.js": "^10.6.0",
+    "next": "16.0.1",
+    "qr-code-styling": "^1.9.2",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "next": "16.0.1"
+    "recharts": "^3.3.0",
+    "solana-pay": "^0.0.7"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
+    "cypress": "^15.6.0",
     "eslint": "^9",
-    "eslint-config-next": "16.0.1"
+    "eslint-config-next": "16.0.1",
+    "jest": "^30.2.0",
+    "pino-pretty": "^13.1.2",
+    "tailwindcss": "^4",
+    "typescript": "^5"
   }
 }
