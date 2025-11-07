@@ -1,26 +1,35 @@
-import { neon } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-http';
-import { trades } from '@/db/schema';
+import { drizzle } from 'drizzle-orm/mysql2';
+import mysql from 'mysql2/promise';
+import { positions } from './schema';
 import { eq } from 'drizzle-orm';
 
-const sql = neon(process.env.DATABASE_URL!);
-export const db = drizzle(sql);
+const connection = mysql.createPool(process.env.DATABASE_URL!);
+export const db = drizzle(connection);
 
-export async function getOpenTrades() {
-  return await db.select().from(trades).where(eq(trades.status, 'open'));
+// Save a new buy position
+export async function savePosition(
+  userWallet: string,
+  tokenMint: string,
+  buyAmount: string,
+  entrySol: string
+) {
+  return await db.insert(positions).values({
+    id: crypto.randomUUID(),
+    user_wallet: userWallet,
+    token_mint: tokenMint,
+    buy_amount: buyAmount,
+    entry_sol: entrySol,
+  });
 }
 
-export async function markTradeAsSold(id: number, profit: number) {
+// Mark position as sold with profit
+export async function markAsSold(id: string, profit: number) {
   await db
-    .update(trades)
-    .set({ 
-  status: 'sold' as const, 
-  profit: profit.toFixed(6),
-  sold_at: new Date()
-}) 
-  status: 'sold' as const, 
-  profit: profit.toFixed(6),
-  sold_at: new Date()
-})
-    .where(eq(trades.id, id));
+    .update(positions)
+    .set({
+      status: 'sold' as const,
+      profit: profit.toFixed(6),
+      sold_at: new Date(),
+    })
+    .where(eq(positions.id, id));
 }
