@@ -188,50 +188,48 @@ function AppContent() {
     }
   };
 
-  const executeArb = async (arb: Arb) => {
-    if (!publicKey || !signTransaction || !PROJECT_WALLET) return;
+ const executeArb = async (arb: Arb) => {
+  if (!publicKey || !signTransaction) return;
 
-    try {
-      const quoteRes = await fetch(
-        `/api/jupiter/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${arb.id}&amount=100000000&slippageBps=100`
-      );
-      const quote = await quoteRes.json();
+  try {
+    // Get quote
+    const quoteRes = await fetch(
+      `https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${arb.id}&amount=100000000&slippageBps=50`
+    );
+    const quote = await quoteRes.json();
 
-      if (!quote?.outAmount) throw new Error("No route found");
+    // Get swap transaction
+    const swapRes = await fetch("/api/jupiter/swap", {
+      method: "POST",
+      body: JSON.stringify({
+        quoteResponse: quote,
+        userPublicKey: publicKey.toBase58(),
+      }),
+    });
+    const { swapTransaction } = await swapRes.json();
 
-      const swapRes = await fetch("/api/jupiter/swap", {
+    // Deserialize + sign
+    const tx = Transaction.from(Buffer.from(swapTransaction, "base64"));
+    const signed = await signTransaction(tx);
+    const sig = await connection.sendRawTransaction(signed.serialize());
+
+    await connection.confirmTransaction(sig);
+
+    // Track profit (simplified)
+    setTimeout(async () => {
+      const balance = await connection.getTokenAccountBalance(new PublicKey(arb.id));
+      const profit = ((balance.value.uiAmount || 0) * arb.price - 0.1).toFixed(4);
+      await fetch("/api/telegram/profit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          quoteResponse: quote,
-          userPublicKey: publicKey.toBase58(),
-          wrapAndUnwrapSol: true,
-          feeAccount: PROJECT_WALLET,
-        }),
+        body: JSON.stringify({ profit, token: arb.name, sig }),
       });
-      const swapData = await swapRes.json();
+    }, 30000); // Check after 30s
 
-      if (!swapData.swapTransaction) throw new Error("Swap failed");
-
-      const swapTx = Transaction.from(Buffer.from(swapData.swapTransaction, "base64"));
-      const signedSwap = await signTransaction!(swapTx);
-      const serializedTx = signedSwap.serialize();
-      const signature = await connection.sendRawTransaction(serializedTx, {
-        skipPreflight: true,
-        maxRetries: 3,
-      });
-      const sigStr = typeof signature === "string" ? signature : bs58.encode(signature);
-
-      await connection.confirmTransaction(sigStr, "confirmed");
-
-      alert(`AUTO-TRADE SUCCESS!\nBought ${arb.name}\nTx: ${sigStr}\nYou earned 0.5% fee!`);
-
-      await sendTradeSuccess(arb, sigStr);
-    } catch (err: any) {
-      console.error("Auto-trade error:", err);
-      alert("Auto-trade failed: " + (err.message || "Try again"));
-    }
-  };
+    alert(`Bought ${arb.name}! Tx: ${sig}`);
+  } catch (err: any) {
+    alert("Trade failed: " + err.message);
+  }
+};
 
   const fetchArbs = async () => {
     if (!isPaid()) return;

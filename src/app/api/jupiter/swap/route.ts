@@ -1,23 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Connection, PublicKey, Transaction } from "@solana/web3.js";
+import { Wallet } from "@solana/wallet-adapter-react";
 
-const JUPITER_API = "https://quote-api.jup.ag/v6/swap";
+const JUPITER_API = "https://quote-api.jup.ag/v6";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    const { quoteResponse, userPublicKey } = body;
 
-    const res = await fetch(JUPITER_API, {
+    const response = await fetch(`${JUPITER_API}/swap`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        quoteResponse,
+        userPublicKey,
+        wrapAndUnwrapSol: true,
+        prioritizationFeeLamports: "auto",
+      }),
     });
 
-    if (!res.ok) throw new Error("Swap failed");
-
-    const data = await res.json();
-    return NextResponse.json(data);
+    const { swapTransaction } = await response.json();
+    return NextResponse.json({ swapTransaction });
   } catch (err) {
-    console.error("Jupiter swap error:", err);
     return NextResponse.json({ error: "Swap failed" }, { status: 500 });
   }
 }
