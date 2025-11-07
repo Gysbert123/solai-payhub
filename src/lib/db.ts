@@ -13,6 +13,9 @@ export async function getOpenTrades() {
 export async function markTradeAsSold(id: number, profit: number) {
   await db
     .update(trades)
-    .set({ status: 'sold', profit: profit.toFixed(2) })
+    .set({ 
+      status: 'sold' as const, 
+      profit: profit.toFixed(2) 
+    })
     .where(eq(trades.id, id));
 }
