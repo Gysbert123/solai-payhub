@@ -6,6 +6,13 @@ import { eq, and, isNull } from 'drizzle-orm';
 const connection = mysql.createPool(process.env.DATABASE_URL!);
 export const db = drizzle(connection);
 
+type PositionRow = typeof positions.$inferSelect;
+type PositionStatusUpdate = {
+  status: PositionRow['status'];
+  profit: PositionRow['profit'];
+  sold_at: PositionRow['sold_at'];
+};
+
 export async function savePosition(
   userWallet: string,
   tokenMint: string,
@@ -29,11 +36,14 @@ export async function getOpenTrades() {
 }
 
 export async function markTradeAsSold(id: string, profit: number) {
-  const updateValues: Partial<typeof positions.$inferInsert> = {
+  const updateValues: PositionStatusUpdate = {
     status: 'sold',
     profit: profit.toFixed(9),
     sold_at: new Date(),
   };
 
-  await db.update(positions).set(updateValues).where(eq(positions.id, id));
+  await db
+    .update(positions)
+    .set(updateValues as unknown as Partial<typeof positions.$inferInsert>)
+    .where(eq(positions.id, id));
 }
