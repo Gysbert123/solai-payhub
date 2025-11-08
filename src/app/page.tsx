@@ -33,6 +33,33 @@ interface Arb {
   updated: string;
 }
 
+interface AgentRevenueSummary {
+  totalCount: number;
+  totalAmount: string;
+}
+
+interface AgentRevenueItem {
+  id: string;
+  agentId: string;
+  amount: string;
+  status: string;
+  signature: string | null;
+  insight: {
+    meme?: string;
+    score?: number;
+    arb?: string;
+    risk?: string;
+  } | null;
+  confirmedAt: string | null;
+  deliveredAt: string | null;
+  createdAt: string | null;
+}
+
+interface AgentRevenueResponse {
+  summary: AgentRevenueSummary;
+  recent: AgentRevenueItem[];
+}
+
 function AppContent() {
   const { publicKey, signTransaction, connected } = useWallet();
   const { connection } = useConnection();
@@ -40,6 +67,9 @@ function AppContent() {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [arbs, setArbs] = useState<Arb[]>([]);
   const [loading, setLoading] = useState(false);
+  const [agentRevenue, setAgentRevenue] = useState<AgentRevenueResponse | null>(null);
+  const [revenueLoading, setRevenueLoading] = useState(false);
+  const [revenueError, setRevenueError] = useState<string | null>(null);
 
   const PROJECT_WALLET = process.env.NEXT_PUBLIC_PROJECT_WALLET;
   const SESSION_DURATION = 30 * 60 * 1000;
@@ -240,6 +270,73 @@ function AppContent() {
     if (connected && isPaid()) setStatus("paid");
   }, [connected, publicKey]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadRevenue = async () => {
+      setRevenueLoading(true);
+      try {
+        const res = await fetch("/api/agent/revenue", { cache: "no-store" });
+        if (!res.ok) {
+          throw new Error(`Status ${res.status}`);
+        }
+        const data: AgentRevenueResponse = await res.json();
+        if (!cancelled) {
+          setAgentRevenue(data);
+          setRevenueError(null);
+        }
+      } catch (error) {
+        console.error("Agent revenue fetch failed:", error);
+        if (!cancelled) {
+          setRevenueError("Unable to load agent revenue");
+        }
+      } finally {
+        if (!cancelled) {
+          setRevenueLoading(false);
+        }
+      }
+    };
+
+    loadRevenue();
+    const interval = setInterval(loadRevenue, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const rawAgentAmount = agentRevenue?.summary?.totalAmount
+    ? parseFloat(agentRevenue.summary.totalAmount)
+    : 0;
+  const totalAgentAmount = Number.isFinite(rawAgentAmount) ? rawAgentAmount : 0;
+  const formattedAgentAmount = totalAgentAmount.toFixed(4);
+  const totalAgentCount = agentRevenue?.summary?.totalCount ?? 0;
+  const recentAgentPayments = agentRevenue?.recent ?? [];
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchRevenue = async () => {
+      try {
+        const res = await fetch("/api/agent/revenue", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setAgentRevenue(data);
+        }
+      } catch (err) {
+        console.error("Agent revenue fetch failed:", err);
+      }
+    };
+
+    fetchRevenue();
+    const interval = setInterval(fetchRevenue, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   return (
     <main className="flex min-h-screen flex-col items-center p-6 bg-gradient-to-br from-purple-900 to-black text-white">
       <h1 className="text-5xl font-bold mb-4">SolAI PayHub</h1>
@@ -340,8 +437,70 @@ function AppContent() {
               Updates every 5 seconds • You earn 0.5% fee on every trade
             </p>
           </div>
+
         </div>
       )}
+      <div className="mt-12 w-full max-w-4xl">
+        <div className="bg-white/5 backdrop-blur rounded-xl p-6 border border-white/10">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-amber-400">AGENT REVENUE</h2>
+              <p className="text-sm text-gray-400">Solana Pay 402 unlocks for autonomous agents</p>
+            </div>
+            <div className="text-right">
+              <p className="text-3xl font-bold text-white">{formattedAgentAmount} SOL</p>
+              <p className="text-xs text-gray-400 uppercase tracking-wide">
+                {totalAgentCount} payments
+              </p>
+            </div>
+          </div>
+          <div className="mt-6">
+            {revenueLoading ? (
+              <p className="text-gray-400 text-sm">Refreshing revenue...</p>
+            ) : revenueError ? (
+              <p className="text-red-300 text-sm">{revenueError}</p>
+            ) : recentAgentPayments.length === 0 ? (
+              <p className="text-gray-400 text-sm">No agent payments yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {recentAgentPayments.map((payment) => {
+                  const paidAt = payment.deliveredAt ?? payment.confirmedAt ?? payment.createdAt;
+                  const formattedPaidAt = paidAt ? new Date(paidAt).toLocaleString() : 'Pending';
+                  const signaturePreview = payment.signature
+                    ? `${payment.signature.slice(0, 4)}…${payment.signature.slice(-4)}`
+                    : '—';
+                  return (
+                    <div
+                      key={payment.id}
+                      className="flex flex-col gap-3 bg-white/10 p-3 rounded-lg border border-white/10 md:flex-row md:items-center md:justify-between"
+                    >
+                      <div>
+                        <p className="text-sm text-gray-300">
+                          Agent <span className="font-semibold text-white">{payment.agentId}</span>
+                        </p>
+                        <p className="text-xs text-gray-500">Paid {formattedPaidAt}</p>
+                        {payment.insight && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            Insight: {payment.insight.meme} • Score {payment.insight.score} •{' '}
+                            {payment.insight.risk}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-green-300">
+                          +{parseFloat(payment.amount ?? '0').toFixed(4)} SOL
+                        </p>
+                        <p className="text-xs text-gray-500 uppercase">{payment.status}</p>
+                        <p className="text-xs text-gray-500">Tx {signaturePreview}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </main>
   );
 }
