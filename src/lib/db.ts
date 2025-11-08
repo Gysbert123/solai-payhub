@@ -1,26 +1,29 @@
-import { drizzle } from 'drizzle-orm/mysql2';
-import mysql from 'mysql2/promise';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 import { positions, agentPayments } from './schema';
 import { eq, and, isNull, sql, inArray } from 'drizzle-orm';
 
-function isValidDatabaseUrl(urlString: string | undefined) {
-  if (!urlString) return false;
-
+function isValidDatabaseUrl(url?: string) {
+  if (!url) return false;
   try {
-    const url = new URL(urlString);
-    if (!url.hostname || url.hostname === 'HOST') return false;
-    return url.protocol === 'mysql:' || url.protocol === 'mysqls:';
+    const parsed = new URL(url);
+    if (!parsed.hostname || parsed.hostname === 'HOST') return false;
+    return parsed.protocol === 'postgresql:' || parsed.protocol === 'postgres:';
   } catch {
     return false;
   }
 }
 
 const databaseUrl = process.env.DATABASE_URL;
-const connection = isValidDatabaseUrl(databaseUrl)
-  ? mysql.createPool(databaseUrl!)
+
+const client = isValidDatabaseUrl(databaseUrl)
+  ? postgres(databaseUrl!, {
+      ssl: 'require',
+      prepare: false,
+    })
   : null;
 
-export const db = connection ? drizzle(connection) : null;
+export const db = client ? drizzle(client) : null;
 
 type PositionRow = typeof positions.$inferSelect;
 type PositionStatusUpdate = {
@@ -29,6 +32,10 @@ type PositionStatusUpdate = {
   sold_at: PositionRow['sold_at'];
 };
 type AgentPaymentRow = typeof agentPayments.$inferSelect;
+
+export function logAgentPayment(event: string, details: Record<string, unknown>) {
+  console.log(`[agent-payment] ${event}`, details);
+}
 
 export async function savePosition(
   userWallet: string,
@@ -97,6 +104,8 @@ export async function createAgentPayment(
     reference,
     amount,
   });
+
+  logAgentPayment('created', { id, agentId, reference, amount });
 
   const [record] = await db
     .select()
@@ -176,6 +185,8 @@ export async function confirmAgentPayment(
     .set(updateValues)
     .where(eq(agentPayments.reference, reference));
 
+  logAgentPayment('confirmed', { reference, txSignature });
+
   return await getAgentPaymentByReference(reference);
 }
 
@@ -191,6 +202,8 @@ export async function markAgentInsightDelivered(id: string) {
     .update(agentPayments)
     .set(updateValues)
     .where(eq(agentPayments.id, id));
+
+  logAgentPayment('delivered', { id });
 }
 
 export async function getAgentRevenueSummary() {
