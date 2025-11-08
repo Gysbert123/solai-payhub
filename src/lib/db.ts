@@ -29,12 +29,11 @@ export async function getOpenTrades() {
 }
 
 export async function markTradeAsSold(id: string, profit: number) {
-  await db
-    .update(positions)
-    .set({
-      status: 'sold' as const,
-      profit: profit.toFixed(6),
-      sold_at: new Date(),
-    })
-    .where(eq(positions.id, id));
+  const updateValues: Partial<typeof positions.$inferInsert> = {
+    status: 'sold',
+    profit: profit.toFixed(9),
+    sold_at: new Date(),
+  };
+
+  await db.update(positions).set(updateValues).where(eq(positions.id, id));
 }
