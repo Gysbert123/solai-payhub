@@ -3,8 +3,24 @@ import mysql from 'mysql2/promise';
 import { positions } from './schema';
 import { eq, and, isNull } from 'drizzle-orm';
 
-const connection = mysql.createPool(process.env.DATABASE_URL!);
-export const db = drizzle(connection);
+function isValidDatabaseUrl(urlString: string | undefined) {
+  if (!urlString) return false;
+
+  try {
+    const url = new URL(urlString);
+    if (!url.hostname || url.hostname === 'HOST') return false;
+    return url.protocol === 'mysql:' || url.protocol === 'mysqls:';
+  } catch {
+    return false;
+  }
+}
+
+const databaseUrl = process.env.DATABASE_URL;
+const connection = isValidDatabaseUrl(databaseUrl)
+  ? mysql.createPool(databaseUrl!)
+  : null;
+
+export const db = connection ? drizzle(connection) : null;
 
 type PositionRow = typeof positions.$inferSelect;
 type PositionStatusUpdate = {
@@ -19,6 +35,11 @@ export async function savePosition(
   buyAmount: string,
   entrySol: string
 ) {
+  if (!db) {
+    console.warn('Database connection unavailable: savePosition skipped.');
+    return;
+  }
+
   return await db.insert(positions).values({
     id: crypto.randomUUID(),
     user_wallet: userWallet,
@@ -29,6 +50,11 @@ export async function savePosition(
 }
 
 export async function getOpenTrades() {
+  if (!db) {
+    console.warn('Database connection unavailable: returning empty open trades.');
+    return [];
+  }
+
   return await db
     .select()
     .from(positions)
@@ -36,6 +62,11 @@ export async function getOpenTrades() {
 }
 
 export async function markTradeAsSold(id: string, profit: number) {
+  if (!db) {
+    console.warn('Database connection unavailable: markTradeAsSold skipped.');
+    return;
+  }
+
   const updateValues: PositionStatusUpdate = {
     status: 'sold',
     profit: profit.toFixed(9),
