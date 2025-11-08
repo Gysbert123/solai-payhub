@@ -12,3 +12,5 @@ export const positions = mysqlTable('positions', {
   created_at: timestamp('created_at').defaultNow(),
   sold_at: timestamp('sold_at'),
 });
+
+// FORCE REBUILD
