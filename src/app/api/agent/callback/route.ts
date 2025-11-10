@@ -83,12 +83,11 @@ async function assertSystemTransfer(
     };
 
     const lookupKeys = message.getAccountKeys({ accountKeysFromLookups });
-    for (let i = 0; i < lookupKeys.staticAccountKeys.length; i++) {
-      accountKeys.push(lookupKeys.staticAccountKeys[i]);
-    }
-    for (const key of lookupKeys.accountKeysFromLookups ?? []) {
-      accountKeys.push(key);
-    }
+    lookupKeys.staticAccountKeys.forEach((key) => accountKeys.push(key));
+    const writableLookups = lookupKeys.accountKeysFromLookups?.writable ?? [];
+    const readonlyLookups = lookupKeys.accountKeysFromLookups?.readonly ?? [];
+    writableLookups.forEach((key) => accountKeys.push(key));
+    readonlyLookups.forEach((key) => accountKeys.push(key));
 
     message.compiledInstructions.forEach((ix) => {
       const programId = accountKeys[ix.programIdIndex]!;
