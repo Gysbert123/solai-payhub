@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@jup-ag/api": "^6.0.46",
     "@neondatabase/serverless": "^0.9.5",
     "@solana/pay": "^0.2.6",
     "@solana/wallet-adapter-base": "^0.9.23",
