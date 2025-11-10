@@ -82,7 +82,7 @@ async function assertSystemTransfer(
         tx.meta.loadedAddresses?.readonly.map((key) => new PublicKey(key)) ?? [],
     };
 
-    const lookupKeys = message.getAccountKeys(accountKeysFromLookups);
+    const lookupKeys = message.getAccountKeys({ accountKeysFromLookups });
     for (let i = 0; i < lookupKeys.staticAccountKeys.length; i++) {
       accountKeys.push(lookupKeys.staticAccountKeys[i]);
     }
