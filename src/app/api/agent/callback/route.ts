@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  findReference,
-  validateTransfer,
-  FindReferenceError,
-  ValidateTransferError,
-} from '@solana/pay';
+import { findReference, FindReferenceError } from '@solana/pay';
 import BigNumber from 'bignumber.js';
-import { Connection, PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey, SystemProgram } from '@solana/web3.js';
 import {
   confirmAgentPayment,
   getAgentPaymentByReference,
@@ -41,6 +36,98 @@ function generateInsight(): InsightPayload {
     arb: arbs[Math.floor(Math.random() * arbs.length)],
     risk: risks[Math.floor(Math.random() * risks.length)],
   };
+}
+
+async function assertSystemTransfer(
+  connection: Connection,
+  signature: string,
+  recipient: PublicKey,
+  amount: BigNumber,
+  reference: PublicKey
+) {
+  const tx = await connection.getTransaction(signature, {
+    commitment: 'confirmed',
+    maxSupportedTransactionVersion: 0,
+  });
+
+  if (!tx || !tx.meta) {
+    throw new Error('transaction not found');
+  }
+
+  const expectedLamports = amount.multipliedBy(1_000_000_000);
+
+  const message = tx.transaction.message;
+  const accountKeys: PublicKey[] = [];
+  const instructions: {
+    programId: PublicKey;
+    keys: { pubkey: PublicKey }[];
+  }[] = [];
+
+  if ('instructions' in message) {
+    // Legacy transaction
+    message.accountKeys.forEach((key) => accountKeys.push(key));
+    message.instructions.forEach((ix) => {
+      const programId = message.accountKeys[ix.programIdIndex]!;
+      const keys = ix.accounts.map((index) => ({
+        pubkey: message.accountKeys[index]!,
+      }));
+      instructions.push({ programId, keys });
+    });
+  } else {
+    // Versioned transaction (v0 and beyond)
+    const accountKeysFromLookups = {
+      writable:
+        tx.meta.loadedAddresses?.writable.map((key) => new PublicKey(key)) ?? [],
+      readonly:
+        tx.meta.loadedAddresses?.readonly.map((key) => new PublicKey(key)) ?? [],
+    };
+
+    const lookupKeys = message.getAccountKeys(accountKeysFromLookups);
+    for (let i = 0; i < lookupKeys.staticAccountKeys.length; i++) {
+      accountKeys.push(lookupKeys.staticAccountKeys[i]);
+    }
+    for (const key of lookupKeys.accountKeysFromLookups ?? []) {
+      accountKeys.push(key);
+    }
+
+    message.compiledInstructions.forEach((ix) => {
+      const programId = accountKeys[ix.programIdIndex]!;
+      const keys = ix.accountKeyIndexes.map((index) => ({
+        pubkey: accountKeys[index]!,
+      }));
+      instructions.push({ programId, keys });
+    });
+  }
+
+  const recipientIndex = accountKeys.findIndex((key) => key.equals(recipient));
+
+  if (recipientIndex === -1) {
+    throw new Error('recipient mismatch');
+  }
+
+  const transferIx = instructions.find(
+    (ix) =>
+      ix.programId.equals(SystemProgram.programId) &&
+      ix.keys.length >= 2 &&
+      ix.keys[1].pubkey.equals(recipient)
+  );
+
+  if (!transferIx) {
+    throw new Error('system transfer not found');
+  }
+
+  const hasReference = transferIx.keys.some((key) => key.pubkey.equals(reference));
+  if (!hasReference) {
+    throw new Error('reference not found');
+  }
+
+  const postLamports = new BigNumber(tx.meta.postBalances[recipientIndex]);
+  const preLamports = new BigNumber(tx.meta.preBalances[recipientIndex]);
+  const deltaLamports = postLamports.minus(preLamports);
+
+  if (deltaLamports.lt(expectedLamports)) {
+    throw new Error('amount not transferred');
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -78,11 +165,8 @@ export async function POST(req: NextRequest) {
       finality: 'confirmed',
     });
 
-    await validateTransfer(connection, signature, {
-      recipient: new PublicKey(PROJECT_WALLET),
-      amount: PAYMENT_AMOUNT,
-      reference: referenceKey,
-    });
+    const recipientKey = new PublicKey(PROJECT_WALLET);
+    await assertSystemTransfer(connection, signature, recipientKey, PAYMENT_AMOUNT, referenceKey);
 
     const insight = generateInsight();
 
@@ -105,10 +189,6 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     if (err instanceof FindReferenceError) {
       return NextResponse.json({ status: 'pending' }, { status: 402 });
-    }
-
-    if (err instanceof ValidateTransferError) {
-      return NextResponse.json({ error: 'Payment details mismatch' }, { status: 422 });
     }
 
     console.error('Agent payment validation failed:', err);
