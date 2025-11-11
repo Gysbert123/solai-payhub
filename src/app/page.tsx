@@ -205,8 +205,11 @@ function AppContent() {
 
     try {
       const quoteRes = await fetch(
-        `https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${arb.id}&amount=100000000&slippageBps=100`
+        `/api/jupiter/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${arb.id}&amount=100000000&slippageBps=100`
       );
+      if (!quoteRes.ok) {
+        throw new Error("Quote request failed");
+      }
       const quote = await quoteRes.json();
 
       if (!quote?.outAmount) throw new Error("No route found");
