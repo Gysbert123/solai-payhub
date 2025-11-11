@@ -24,13 +24,14 @@ interface Insight {
 
 interface Arb {
   id: string;
-  name: string;
-  from: string;
-  to: string;
-  profit: number;
-  risk: "Low" | "Medium" | "High";
-  ai_score: number;
-  updated: string;
+  base_mint: string;
+  quote_mint: string;
+  base_symbol: string;
+  quote_symbol: string;
+  price: string;
+  profit_pct: string;
+  source: string;
+  created_at: string;
 }
 
 interface AgentRevenueSummary {
@@ -202,21 +203,50 @@ function AppContent() {
 
   const executeArb = async (arb: Arb) => {
     if (!publicKey || !signTransaction) return;
+    if (!arb.base_mint) {
+      alert("Auto-trade failed: Missing token mint");
+      return;
+    }
 
+    const parsedProfit = parseFloat(arb.profit_pct ?? "0");
+    const profit = Number.isFinite(parsedProfit) ? parsedProfit : 0;
     try {
-      const quoteRes = await fetch(
-        `/api/jupiter/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${arb.id}&amount=100000000&slippageBps=100`
+      const fetchWithRetry = async (input: RequestInfo, init?: RequestInit, retries = 2) => {
+        let lastStatus: number | null = null;
+        for (let attempt = 0; attempt <= retries; attempt++) {
+          const res = await fetch(input, init);
+          lastStatus = res.status;
+
+          if (res.status === 429) {
+            if (attempt === retries) {
+              const details = await res.json().catch(() => null);
+              const reason = details?.error || "Jupiter rate limited";
+              throw new Error(reason);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+            continue;
+          }
+
+          if (!res.ok) {
+            const details = await res.json().catch(() => null);
+            const reason = details?.error || details?.details || `Status ${res.status}`;
+            throw new Error(reason);
+          }
+
+          return res;
+        }
+
+        throw new Error(`Request failed with status ${lastStatus}`);
+      };
+
+      const quoteRes = await fetchWithRetry(
+        `/api/jupiter/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${arb.base_mint}&amount=100000000&slippageBps=100`
       );
-      if (!quoteRes.ok) {
-        const details = await quoteRes.json().catch(() => null);
-        const reason = details?.error || details?.details || "No route returned";
-        throw new Error(reason);
-      }
       const quote = await quoteRes.json();
 
       if (!quote?.outAmount) throw new Error("No route found");
 
-      const swapRes = await fetch("/api/jupiter/swap", {
+      const swapRes = await fetchWithRetry("/api/jupiter/swap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -227,6 +257,11 @@ function AppContent() {
         }),
       });
       const swapData = await swapRes.json();
+
+      if (swapData?.error) {
+        const details = typeof swapData.error === "string" ? swapData.error : swapData.error?.message;
+        throw new Error(details || "Swap failed");
+      }
 
       if (!swapData.swapTransaction) throw new Error("Swap failed");
 
@@ -241,8 +276,16 @@ function AppContent() {
 
       await connection.confirmTransaction(sigStr, "confirmed");
 
-      await sendTradeSuccess(arb, sigStr);
-      alert(`AUTO-TRADE SUCCESS!\nBought ${arb.name}\nTx: ${sigStr}\nYou earned 0.5% fee!`);
+      const pairLabel = `${arb.base_symbol}/${arb.quote_symbol}`;
+      const profitLabel = `${profit >= 0 ? "+" : ""}${profit.toFixed(2)}%`;
+
+      await sendTradeSuccess(
+        { label: pairLabel, profitPct: profit },
+        sigStr
+      );
+      alert(
+        `AUTO-TRADE SUCCESS!\nTrade ${pairLabel}\nProfit: ${profitLabel}\nTx: ${sigStr}\nYou earned 0.5% fee!`
+      );
     } catch (err: any) {
       console.error("Auto-trade error:", err);
       alert("Auto-trade failed: " + (err.message || "Try again"));
@@ -253,11 +296,13 @@ function AppContent() {
     if (!isPaid()) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/scanner");
+      const res = await fetch("/api/arbs?limit=10", { cache: "no-store" });
+      if (!res.ok) throw new Error(`Status ${res.status}`);
       const data = await res.json();
       setArbs(data.arbs || []);
     } catch (err) {
-      console.error("Scanner error:", err);
+      console.error("Arb fetch error:", err);
+      setArbs([]);
     } finally {
       setLoading(false);
     }
@@ -266,7 +311,7 @@ function AppContent() {
   useEffect(() => {
     if (isPaid()) {
       fetchArbs();
-      const interval = setInterval(fetchArbs, 5000);
+      const interval = setInterval(fetchArbs, 120000);
       return () => clearInterval(interval);
     }
   }, [status]);
@@ -404,42 +449,53 @@ function AppContent() {
             {loading && <p className="text-yellow-300">Scanning...</p>}
 
             <div className="space-y-3">
-              {arbs.length === 0 && !loading && <p className="text-gray-400">No arbs found. Checking every 5s...</p>}
+              {arbs.length === 0 && !loading && <p className="text-gray-400">No arbs found. Checking every 2 minutes...</p>}
 
-              {arbs.map((arb) => (
-                <div
-                  key={arb.id}
-                  className="bg-white/10 backdrop-blur rounded-xl p-4 border border-white/20 hover:border-purple-500 transition"
-                >
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="font-bold text-lg">{arb.name}</p>
-                      <p className="text-sm text-gray-300">
-                        {arb.from} to {arb.to} = <span className="text-green-400">+{arb.profit.toFixed(2)}%</span>
-                      </p>
+              {arbs.map((arb) => {
+                const profit = parseFloat(arb.profit_pct ?? "0");
+                const price = parseFloat(arb.price ?? "0");
+                return (
+                  <div
+                    key={arb.id}
+                    className="bg-white/10 backdrop-blur rounded-xl p-4 border border-white/20 hover:border-purple-500 transition"
+                  >
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="font-bold text-lg">{arb.base_symbol}/{arb.quote_symbol}</p>
+                        <p className="text-sm text-gray-300">
+                          Source: {arb.source} • Price: {Number.isFinite(price) ? price.toFixed(6) : "N/A"} {arb.quote_symbol}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xl font-bold">
+                          {Number.isFinite(profit) ? (
+                            profit >= 0 ? (
+                              <span className="text-green-400">+{profit.toFixed(2)}%</span>
+                            ) : (
+                              <span className="text-red-400">{profit.toFixed(2)}%</span>
+                            )
+                          ) : (
+                            <span className="text-gray-300">N/A</span>
+                          )}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-xl font-bold">AI: {arb.ai_score}/100</p>
-                      <p className={`text-sm ${arb.risk === "Low" ? "text-green-400" : arb.risk === "Medium" ? "text-yellow-400" : "text-red-400"}`}>
-                        Risk: {arb.risk}
-                      </p>
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        onClick={() => executeArb(arb)}
+                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-1 rounded-full text-xs font-bold"
+                      >
+                        AUTO-TRADE
+                      </button>
                     </div>
+                    <p className="text-xs text-gray-500 mt-2">Updated: {new Date(arb.created_at).toLocaleTimeString()}</p>
                   </div>
-                  <div className="mt-3 flex justify-end">
-                    <button
-                      onClick={() => executeArb(arb)}
-                      className="bg-red-600 hover:bg-red-700 text-white px-4 py-1 rounded-full text-xs font-bold"
-                    >
-                      AUTO-TRADE
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">Updated: {new Date(arb.updated).toLocaleTimeString()}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <p className="text-center text-sm text-gray-400 mt-6">
-              Updates every 5 seconds • You earn 0.5% fee on every trade
+              Updates every 2 minutes • You earn 0.5% fee on every trade
             </p>
           </div>
 

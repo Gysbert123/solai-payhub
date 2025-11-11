@@ -1,7 +1,8 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { positions, agentPayments } from './schema';
-import { eq, and, isNull, sql, inArray } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
+import { positions, agentPayments, arbs } from './schema';
+import { eq, and, isNull, sql, inArray, desc } from 'drizzle-orm';
 
 function isValidDatabaseUrl(url?: string) {
   if (!url) return false;
@@ -238,5 +239,49 @@ export async function listRecentAgentPayments(limit = 5) {
     .orderBy(
       sql`COALESCE(${agentPayments.confirmed_at}, ${agentPayments.delivered_at}, ${agentPayments.created_at}) DESC`
     )
+    .limit(limit);
+}
+
+export async function recordArbs(entries: {
+  baseMint: string;
+  quoteMint: string;
+  baseSymbol: string;
+  quoteSymbol: string;
+  price: string;
+  profitPct: string;
+  source: string;
+}[]) {
+  if (!db) {
+    console.warn('Database connection unavailable: recordArbs skipped.');
+    return;
+  }
+
+  if (entries.length === 0) return;
+
+  const baseMints = entries.map((entry) => entry.baseMint);
+
+  await db.delete(arbs).where(inArray(arbs.base_mint, baseMints));
+
+  await db.insert(arbs).values(
+    entries.map((entry) => ({
+      id: randomUUID(),
+      base_mint: entry.baseMint,
+      quote_mint: entry.quoteMint,
+      base_symbol: entry.baseSymbol,
+      quote_symbol: entry.quoteSymbol,
+      price: entry.price,
+      profit_pct: entry.profitPct,
+      source: entry.source,
+    }))
+  );
+}
+
+export async function listRecentArbs(limit = 10) {
+  if (!db) return [];
+
+  return db
+    .select()
+    .from(arbs)
+    .orderBy(desc(arbs.created_at))
     .limit(limit);
 }

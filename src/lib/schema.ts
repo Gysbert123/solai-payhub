@@ -26,4 +26,16 @@ export const agentPayments = pgTable('agent_payments', {
   delivered_at: timestamp('delivered_at', { withTimezone: true }),
 });
 
+export const arbs = pgTable('arbs', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  base_mint: varchar('base_mint', { length: 64 }).notNull(),
+  quote_mint: varchar('quote_mint', { length: 64 }).notNull(),
+  base_symbol: varchar('base_symbol', { length: 16 }).notNull(),
+  quote_symbol: varchar('quote_symbol', { length: 16 }).notNull(),
+  price: numeric('price', { precision: 20, scale: 9 }).notNull(),
+  profit_pct: numeric('profit_pct', { precision: 10, scale: 4 }).notNull(),
+  source: varchar('source', { length: 32 }).notNull(),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
 // FORCE REBUILD

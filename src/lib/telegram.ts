@@ -42,7 +42,7 @@ Cost: 0.0001 SOL
   }
 }
 
-export async function sendTradeSuccess(arb: { name: string; profit: number }, tx: string) {
+export async function sendTradeSuccess(trade: { label: string; profitPct: number }, tx: string) {
   const token = process.env.NEXT_PUBLIC_TELEGRAM_BOT_TOKEN;
   const chatId = process.env.NEXT_PUBLIC_TELEGRAM_CHAT_ID;
 
@@ -50,8 +50,8 @@ export async function sendTradeSuccess(arb: { name: string; profit: number }, tx
 
   const message = `
 <b>AUTO-TRADE SUCCESS</b>
-Bought: <b>${arb.name}</b>
-Profit: +${arb.profit.toFixed(2)}%
+Trade: <b>${trade.label}</b>
+Profit: ${trade.profitPct >= 0 ? '+' : ''}${trade.profitPct.toFixed(2)}%
 Tx: <code>${tx}</code>
 You earned 0.5% fee
   `.trim();

@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/auto-sell",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/scanner",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

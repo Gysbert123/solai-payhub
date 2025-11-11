@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       
       const fakeTx = "5Ntciq..." + Math.random().toString(36).slice(2, 8);
       await sendTradeSuccess(
-        { name: meme, profit: 3.2 },
+        { label: meme, profitPct: 3.2 },
         fakeTx
       );
 

@@ -1,18 +1,12 @@
 import { NextResponse } from "next/server";
+import { listRecentArbs } from "@/lib/db";
 
 export async function GET() {
-  const arbs = [
-    {
-      id: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC mint
-      name: "USDC",
-      from: "Jupiter",
-      to: "Orca",
-      profit: 0.05,
-      risk: "Low" as const,
-      ai_score: 98,
-      updated: new Date().toISOString(),
-    },
-  ];
-
-  return NextResponse.json({ arbs });
+  try {
+    const arbs = await listRecentArbs(10);
+    return NextResponse.json({ arbs });
+  } catch (error) {
+    console.error("Scanner route error:", error);
+    return NextResponse.json({ arbs: [] }, { status: 500 });
+  }
 }
