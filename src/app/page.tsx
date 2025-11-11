@@ -208,7 +208,9 @@ function AppContent() {
         `/api/jupiter/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${arb.id}&amount=100000000&slippageBps=100`
       );
       if (!quoteRes.ok) {
-        throw new Error("Quote request failed");
+        const details = await quoteRes.json().catch(() => null);
+        const reason = details?.error || details?.details || "No route returned";
+        throw new Error(reason);
       }
       const quote = await quoteRes.json();
 
