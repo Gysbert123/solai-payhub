@@ -8,10 +8,21 @@ export async function GET(req: NextRequest) {
 
   try {
     const res = await fetch(`${JUPITER_API}?${params}`, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        accept: "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "SolAI-PayHub/1.0",
+      },
     });
 
-    if (!res.ok) throw new Error("Jupiter failed");
+    if (!res.ok) {
+      const errorBody = await res.text();
+      console.error("Jupiter quote error:", res.status, errorBody);
+      return NextResponse.json(
+        { error: "No route", status: res.status, details: errorBody },
+        { status: res.status }
+      );
+    }
 
     const data = await res.json();
     return NextResponse.json(data);
