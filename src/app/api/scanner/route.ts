@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export async function GET() {
   const arbs = [
     {
-      id: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyK7fDi", // USDC
+      id: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC mint
       name: "USDC",
       from: "Jupiter",
       to: "Orca",
