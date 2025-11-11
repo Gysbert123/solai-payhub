@@ -93,10 +93,8 @@ export async function GET() {
       const snapshot = await fetchTokenSnapshot(token.mint);
       if (!snapshot) continue;
 
-      const rawProfit = snapshot.changePct ?? 0;
-      const profitPct = Math.max(rawProfit, 0);
-
-      if (profitPct >= PROFIT_THRESHOLD) {
+      const profitPct = snapshot.changePct ?? 0;
+      if (Math.abs(profitPct) >= PROFIT_THRESHOLD) {
         results.push({
           baseMint: token.mint,
           quoteMint: USDC_MINT,
