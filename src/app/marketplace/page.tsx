@@ -391,6 +391,16 @@ function MarketplaceContent() {
         throw new Error("Invalid listing amount");
       }
 
+      // Check balances BEFORE building transaction
+      const balance = await connection.getBalance(publicKey);
+      const usdcBalance = await connection.getTokenAccountBalance(payerAta).catch(() => null);
+      if (balance < 0.001 * 1e9) {
+        throw new Error("Insufficient SOL for transaction fees. Need at least 0.001 SOL.");
+      }
+      if (!usdcBalance || Number(usdcBalance.value.amount) < Number(amountMinor)) {
+        throw new Error(`Insufficient USDC. Need ${pendingListingPayment.amount} USDC.`);
+      }
+
       const transferIx = createTransferCheckedInstruction(
         payerAta,
         usdcMintKey,
@@ -413,14 +423,20 @@ function MarketplaceContent() {
 
       const signature = await sendTransaction(transaction, connection);
       setListingStatus(`USDC payment sent (${signature}). Awaiting confirmation...`);
+
       try {
         await waitForBackendConfirmation(signature);
         setListingStatus("USDC payment confirmed. Validating reference...");
         await pollListingPayment();
       } catch (confirmErr: any) {
         console.error("Backend confirmation failed:", confirmErr);
-        setListingStatus("Confirmation delayed, polling reference...");
-        await pollListingPayment();
+        const errorMsg = confirmErr?.message || String(confirmErr);
+        if (errorMsg.includes("Custom:2") || errorMsg.includes("InstructionError")) {
+          setListingStatus("Transaction failed: Check you have enough USDC and SOL for fees. Try the 'Open Payment Link' option instead.");
+        } else {
+          setListingStatus("Confirmation delayed, polling reference...");
+          await pollListingPayment();
+        }
       }
     } catch (err: any) {
       console.error("Listing wallet payment failed:", err);
