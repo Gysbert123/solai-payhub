@@ -6,6 +6,7 @@ import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { clusterApiUrl, PublicKey, Transaction } from "@solana/web3.js";
 import {
+  TOKEN_2022_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
   createTransferCheckedInstruction,
   getAssociatedTokenAddress,
@@ -63,7 +64,7 @@ async function ensureAssociatedTokenAccount(
   owner: PublicKey,
   mint: PublicKey
 ) {
-  const ata = await getAssociatedTokenAddress(mint, owner);
+  const ata = await getAssociatedTokenAddress(mint, owner, undefined, TOKEN_2022_PROGRAM_ID);
   const instructions = [];
   
   // Retry logic for rate-limited RPC endpoints
@@ -82,7 +83,15 @@ async function ensureAssociatedTokenAccount(
       
       // Success - ATA exists or doesn't exist, we have the info
       if (!accountInfo) {
-        instructions.push(createAssociatedTokenAccountInstruction(payer, ata, owner, mint));
+        instructions.push(
+          createAssociatedTokenAccountInstruction(
+            payer,
+            ata,
+            owner,
+            mint,
+            TOKEN_2022_PROGRAM_ID
+          )
+        );
       }
       return { ata, instructions };
     } catch (error: any) {
@@ -98,14 +107,24 @@ async function ensureAssociatedTokenAccount(
       // If all retries failed, assume ATA needs to be created
       // This is safe - if ATA already exists, the transaction will handle it gracefully
       console.warn('Account check failed after retries, assuming ATA needs creation:', error?.message);
-      instructions.push(createAssociatedTokenAccountInstruction(payer, ata, owner, mint));
+      instructions.push(
+        createAssociatedTokenAccountInstruction(
+          payer,
+          ata,
+          owner,
+          mint,
+          TOKEN_2022_PROGRAM_ID
+        )
+      );
       return { ata, instructions };
     }
   }
   
   // Fallback - if we somehow get here, assume ATA needs creation
   if (instructions.length === 0) {
-    instructions.push(createAssociatedTokenAccountInstruction(payer, ata, owner, mint));
+    instructions.push(
+      createAssociatedTokenAccountInstruction(payer, ata, owner, mint, TOKEN_2022_PROGRAM_ID)
+    );
   }
   return { ata, instructions };
 }
@@ -398,7 +417,9 @@ function MarketplaceContent() {
         recipientAta,
         publicKey,
         amountMinor,
-        USDC_DECIMALS
+        USDC_DECIMALS,
+        undefined,
+        TOKEN_2022_PROGRAM_ID
       );
       transferIx.keys.push({ pubkey: referenceKey, isSigner: false, isWritable: false });
 
@@ -461,7 +482,9 @@ function MarketplaceContent() {
         recipientAta,
         publicKey,
         amountMinor,
-        USDC_DECIMALS
+        USDC_DECIMALS,
+        undefined,
+        TOKEN_2022_PROGRAM_ID
       );
       transferIx.keys.push({ pubkey: referenceKey, isSigner: false, isWritable: false });
 
