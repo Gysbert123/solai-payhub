@@ -692,6 +692,17 @@ function resolveInitialEndpoint(customRpc: string | undefined, fallback: string)
   return fallback;
 }
 
+function toWsUrl(urlString: string | undefined) {
+  if (!urlString) return undefined;
+  try {
+    const url = new URL(urlString);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 export default function MarketplacePage() {
   // For client-side wallet operations on mainnet
   // Note: Phantom wallet often uses its own RPC infrastructure for transactions
@@ -700,25 +711,46 @@ export default function MarketplacePage() {
   // If rate limits occur, error handling will gracefully handle it
   const cluster = DEFAULT_CLUSTER;
   const defaultEndpoint = useMemo(() => clusterApiUrl(cluster), [cluster]);
+  const defaultWsEndpoint = useMemo(() => toWsUrl(defaultEndpoint), [defaultEndpoint]);
   const customRpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim();
   const [endpoint, setEndpoint] = useState(() =>
     resolveInitialEndpoint(customRpc, defaultEndpoint)
   );
+  const [wsEndpoint, setWsEndpoint] = useState<string | undefined>(() =>
+    customRpc ? toWsUrl(resolveInitialEndpoint(customRpc, defaultEndpoint)) : defaultWsEndpoint
+  );
   const wallets = useMemo(() => [], []);
 
   useEffect(() => {
-    if (!customRpc) return;
+    if (!customRpc) {
+      setEndpoint(defaultEndpoint);
+      setWsEndpoint(defaultWsEndpoint);
+      return;
+    }
     if (customRpc.startsWith("http://") || customRpc.startsWith("https://")) {
       setEndpoint(customRpc);
+      setWsEndpoint(toWsUrl(customRpc));
       return;
     }
     if (customRpc.startsWith("/") && typeof window !== "undefined") {
       setEndpoint(new URL(customRpc, window.location.origin).toString());
+      setWsEndpoint(defaultWsEndpoint);
+      return;
     }
-  }, [customRpc]);
+    setEndpoint(defaultEndpoint);
+    setWsEndpoint(defaultWsEndpoint);
+  }, [customRpc, defaultEndpoint, defaultWsEndpoint]);
+
+  const connectionConfig = useMemo(
+    () => ({
+      commitment: "confirmed" as const,
+      wsEndpoint: wsEndpoint ?? defaultWsEndpoint,
+    }),
+    [wsEndpoint, defaultWsEndpoint]
+  );
 
   return (
-    <ConnectionProvider endpoint={endpoint}>
+    <ConnectionProvider endpoint={endpoint} config={connectionConfig}>
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
           <MarketplaceContent />

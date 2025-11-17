@@ -588,28 +588,60 @@ function resolveInitialEndpoint(customRpc: string | undefined, fallback: string)
   return fallback;
 }
 
+function toWsUrl(urlString: string | undefined) {
+  if (!urlString) return undefined;
+  try {
+    const url = new URL(urlString);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 export default function Home() {
   const network = "devnet";
   const fallbackEndpoint = useMemo(() => clusterApiUrl(network), [network]);
+  const fallbackWsEndpoint = useMemo(() => toWsUrl(fallbackEndpoint), [fallbackEndpoint]);
   const customRpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim();
   const [endpoint, setEndpoint] = useState(() =>
     resolveInitialEndpoint(customRpc, fallbackEndpoint)
   );
+  const [wsEndpoint, setWsEndpoint] = useState<string | undefined>(() =>
+    customRpc ? toWsUrl(resolveInitialEndpoint(customRpc, fallbackEndpoint)) : fallbackWsEndpoint
+  );
   const wallets = useMemo(() => [], []);
 
   useEffect(() => {
-    if (!customRpc) return;
+    if (!customRpc) {
+      setEndpoint(fallbackEndpoint);
+      setWsEndpoint(fallbackWsEndpoint);
+      return;
+    }
     if (customRpc.startsWith("http://") || customRpc.startsWith("https://")) {
       setEndpoint(customRpc);
+      setWsEndpoint(toWsUrl(customRpc));
       return;
     }
     if (customRpc.startsWith("/") && typeof window !== "undefined") {
       setEndpoint(new URL(customRpc, window.location.origin).toString());
+      setWsEndpoint(fallbackWsEndpoint);
+      return;
     }
-  }, [customRpc]);
+    setEndpoint(fallbackEndpoint);
+    setWsEndpoint(fallbackWsEndpoint);
+  }, [customRpc, fallbackEndpoint, fallbackWsEndpoint]);
+
+  const connectionConfig = useMemo(
+    () => ({
+      commitment: "confirmed" as const,
+      wsEndpoint: wsEndpoint ?? fallbackWsEndpoint,
+    }),
+    [wsEndpoint, fallbackWsEndpoint]
+  );
 
   return (
-    <ConnectionProvider endpoint={endpoint}>
+    <ConnectionProvider endpoint={endpoint} config={connectionConfig}>
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
           <AppContent />
