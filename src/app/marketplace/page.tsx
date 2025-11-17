@@ -7,6 +7,7 @@ import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { clusterApiUrl, PublicKey, Transaction } from "@solana/web3.js";
 import {
   TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
   createTransferCheckedInstruction,
   getAssociatedTokenAddress,
@@ -58,13 +59,37 @@ function parsePublicKey(value: string | undefined | null): PublicKey | null {
   }
 }
 
+async function getTokenProgramId(
+  connection: ReturnType<typeof useConnection>["connection"],
+  mint: PublicKey
+): Promise<typeof TOKEN_PROGRAM_ID | typeof TOKEN_2022_PROGRAM_ID> {
+  try {
+    const mintInfo = await connection.getAccountInfo(mint);
+    if (!mintInfo) {
+      // Default to Token-2022 if we can't check
+      return TOKEN_2022_PROGRAM_ID;
+    }
+    // Check if mint is owned by Token-2022 program
+    if (mintInfo.owner.equals(TOKEN_2022_PROGRAM_ID)) {
+      return TOKEN_2022_PROGRAM_ID;
+    }
+    // Otherwise it's legacy SPL Token
+    return TOKEN_PROGRAM_ID;
+  } catch {
+    // Default to Token-2022 on error
+    return TOKEN_2022_PROGRAM_ID;
+  }
+}
+
 async function ensureAssociatedTokenAccount(
   connection: ReturnType<typeof useConnection>["connection"],
   payer: PublicKey,
   owner: PublicKey,
   mint: PublicKey
 ) {
-  const ata = await getAssociatedTokenAddress(mint, owner, undefined, TOKEN_2022_PROGRAM_ID);
+  // Detect which token program to use
+  const tokenProgramId = await getTokenProgramId(connection, mint);
+  const ata = await getAssociatedTokenAddress(mint, owner, undefined, tokenProgramId);
   const instructions = [];
   
   // Retry logic for rate-limited RPC endpoints
@@ -90,7 +115,7 @@ async function ensureAssociatedTokenAccount(
             ata,
             owner,
             mint,
-            TOKEN_2022_PROGRAM_ID
+            tokenProgramId
           )
         );
       } else {
@@ -98,7 +123,7 @@ async function ensureAssociatedTokenAccount(
         // If it's not a token account, we'll need to handle it differently
         // But for now, if accountInfo exists, we assume it's valid
       }
-      return { ata, instructions };
+      return { ata, instructions, tokenProgramId };
     } catch (error: any) {
       lastError = error;
       // If rate limited (403) or timeout, wait and retry
@@ -118,20 +143,22 @@ async function ensureAssociatedTokenAccount(
           ata,
           owner,
           mint,
-          TOKEN_2022_PROGRAM_ID
+          tokenProgramId
         )
       );
-      return { ata, instructions };
+      return { ata, instructions, tokenProgramId };
     }
   }
   
   // Fallback - if we somehow get here, assume ATA needs creation
+  const fallbackTokenProgramId = await getTokenProgramId(connection, mint);
+  const fallbackAta = await getAssociatedTokenAddress(mint, owner, undefined, fallbackTokenProgramId);
   if (instructions.length === 0) {
     instructions.push(
-      createAssociatedTokenAccountInstruction(payer, ata, owner, mint, TOKEN_2022_PROGRAM_ID)
+      createAssociatedTokenAccountInstruction(payer, fallbackAta, owner, mint, fallbackTokenProgramId)
     );
   }
-  return { ata, instructions };
+  return { ata: fallbackAta, instructions, tokenProgramId: fallbackTokenProgramId };
 }
 
 function toMinorAmount(amount: string) {
@@ -399,7 +426,7 @@ function MarketplaceContent() {
       setListingPaymentProcessing(true);
       setListingStatus("Preparing USDC payment...");
 
-      const { ata: payerAta, instructions: payerAtaInstructions } =
+      const { ata: payerAta, instructions: payerAtaInstructions, tokenProgramId } =
         await ensureAssociatedTokenAccount(connection, publicKey, publicKey, usdcMintKey);
       const { ata: recipientAta, instructions: recipientAtaInstructions } =
         await ensureAssociatedTokenAccount(connection, publicKey, projectWalletKey, usdcMintKey);
@@ -437,7 +464,7 @@ function MarketplaceContent() {
         amountMinor,
         USDC_DECIMALS,
         undefined,
-        TOKEN_2022_PROGRAM_ID
+        tokenProgramId
       );
       transferIx.keys.push({ pubkey: referenceKey, isSigner: false, isWritable: false });
 
@@ -489,7 +516,7 @@ function MarketplaceContent() {
       setPurchasePaymentProcessing(true);
       setPurchaseStatus("Preparing purchase payment...");
 
-      const { ata: payerAta, instructions: payerAtaInstructions } =
+      const { ata: payerAta, instructions: payerAtaInstructions, tokenProgramId } =
         await ensureAssociatedTokenAccount(connection, publicKey, publicKey, usdcMintKey);
       const { ata: recipientAta, instructions: recipientAtaInstructions } =
         await ensureAssociatedTokenAccount(connection, publicKey, projectWalletKey, usdcMintKey);
@@ -508,7 +535,7 @@ function MarketplaceContent() {
         amountMinor,
         USDC_DECIMALS,
         undefined,
-        TOKEN_2022_PROGRAM_ID
+        tokenProgramId
       );
       transferIx.keys.push({ pubkey: referenceKey, isSigner: false, isWritable: false });
 
