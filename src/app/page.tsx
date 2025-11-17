@@ -580,10 +580,33 @@ function AppContent() {
   );
 }
 
+function resolveInitialEndpoint(customRpc: string | undefined, fallback: string) {
+  if (!customRpc) return fallback;
+  if (customRpc.startsWith("http://") || customRpc.startsWith("https://")) {
+    return customRpc;
+  }
+  return fallback;
+}
+
 export default function Home() {
   const network = "devnet";
-  const endpoint = useMemo(() => clusterApiUrl(network), []);
+  const fallbackEndpoint = useMemo(() => clusterApiUrl(network), [network]);
+  const customRpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim();
+  const [endpoint, setEndpoint] = useState(() =>
+    resolveInitialEndpoint(customRpc, fallbackEndpoint)
+  );
   const wallets = useMemo(() => [], []);
+
+  useEffect(() => {
+    if (!customRpc) return;
+    if (customRpc.startsWith("http://") || customRpc.startsWith("https://")) {
+      setEndpoint(customRpc);
+      return;
+    }
+    if (customRpc.startsWith("/") && typeof window !== "undefined") {
+      setEndpoint(new URL(customRpc, window.location.origin).toString());
+    }
+  }, [customRpc]);
 
   return (
     <ConnectionProvider endpoint={endpoint}>

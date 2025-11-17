@@ -684,6 +684,14 @@ function MarketplaceContent() {
   );
 }
 
+function resolveInitialEndpoint(customRpc: string | undefined, fallback: string) {
+  if (!customRpc) return fallback;
+  if (customRpc.startsWith("http://") || customRpc.startsWith("https://")) {
+    return customRpc;
+  }
+  return fallback;
+}
+
 export default function MarketplacePage() {
   // For client-side wallet operations on mainnet
   // Note: Phantom wallet often uses its own RPC infrastructure for transactions
@@ -693,18 +701,21 @@ export default function MarketplacePage() {
   const cluster = DEFAULT_CLUSTER;
   const defaultEndpoint = useMemo(() => clusterApiUrl(cluster), [cluster]);
   const customRpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim();
-  const shouldUseCustom =
-    customRpc &&
-    customRpc.length > 0 &&
-    !/helius|api-key=/i.test(customRpc); // Avoid exposing private RPC keys client-side
-
-  const endpoint = useMemo(() => {
-    if (shouldUseCustom && customRpc) {
-      return customRpc;
-    }
-    return defaultEndpoint;
-  }, [shouldUseCustom, customRpc, defaultEndpoint]);
+  const [endpoint, setEndpoint] = useState(() =>
+    resolveInitialEndpoint(customRpc, defaultEndpoint)
+  );
   const wallets = useMemo(() => [], []);
+
+  useEffect(() => {
+    if (!customRpc) return;
+    if (customRpc.startsWith("http://") || customRpc.startsWith("https://")) {
+      setEndpoint(customRpc);
+      return;
+    }
+    if (customRpc.startsWith("/") && typeof window !== "undefined") {
+      setEndpoint(new URL(customRpc, window.location.origin).toString());
+    }
+  }, [customRpc]);
 
   return (
     <ConnectionProvider endpoint={endpoint}>
