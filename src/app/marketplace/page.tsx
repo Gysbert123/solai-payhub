@@ -391,14 +391,18 @@ function MarketplaceContent() {
         throw new Error("Invalid listing amount");
       }
 
-      // Check balances BEFORE building transaction
-      const balance = await connection.getBalance(publicKey);
-      const usdcBalance = await connection.getTokenAccountBalance(payerAta).catch(() => null);
-      if (balance < 0.001 * 1e9) {
-        throw new Error("Insufficient SOL for transaction fees. Need at least 0.001 SOL.");
-      }
-      if (!usdcBalance || Number(usdcBalance.value.amount) < Number(amountMinor)) {
-        throw new Error(`Insufficient USDC. Need ${pendingListingPayment.amount} USDC.`);
+      // Check balances and warn, but don't block - let wallet handle rejection
+      try {
+        const balance = await connection.getBalance(publicKey);
+        const usdcBalance = await connection.getTokenAccountBalance(payerAta).catch(() => null);
+        if (balance < 0.001 * 1e9) {
+          console.warn("Low SOL balance - transaction may fail");
+        }
+        if (!usdcBalance || Number(usdcBalance.value.amount) < Number(amountMinor)) {
+          console.warn(`Low USDC balance - need ${pendingListingPayment.amount} USDC`);
+        }
+      } catch {
+        // Ignore balance check errors - proceed and let wallet/wallet reject if needed
       }
 
       const transferIx = createTransferCheckedInstruction(
