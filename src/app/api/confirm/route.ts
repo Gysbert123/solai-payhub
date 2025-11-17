@@ -17,10 +17,27 @@ export async function GET(req: NextRequest) {
 
     // If confirmed/finalized → return success
     if (status.value && (status.value.confirmationStatus === 'confirmed' || status.value.confirmationStatus === 'finalized')) {
+      let detailedError = status.value.err;
+      
+      // If there's an error, fetch the transaction to get more details
+      if (status.value.err) {
+        try {
+          const tx = await connection.getTransaction(sig, {
+            commitment: 'confirmed',
+            maxSupportedTransactionVersion: 0,
+          });
+          if (tx?.meta?.err) {
+            detailedError = tx.meta.err;
+          }
+        } catch {
+          // If we can't fetch details, use the status error
+        }
+      }
+      
       return NextResponse.json({
         confirmed: true,
         finalized: status.value.confirmationStatus === 'finalized',
-        err: status.value.err,
+        err: detailedError,
       });
     }
 

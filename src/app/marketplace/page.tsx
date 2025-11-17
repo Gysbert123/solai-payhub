@@ -179,7 +179,19 @@ function MarketplaceContent() {
 
       if (data.confirmed) {
         if (data.err) {
-          throw new Error(`Transaction failed: ${JSON.stringify(data.err)}`);
+          // Format the error message nicely
+          let errorMsg = "Transaction failed";
+          if (data.err.InstructionError) {
+            const [ixIndex, err] = data.err.InstructionError;
+            if (err.Custom) {
+              errorMsg = `Instruction ${ixIndex} failed with error code ${err.Custom}. This usually means insufficient funds or a program error.`;
+            } else {
+              errorMsg = `Instruction ${ixIndex} failed: ${JSON.stringify(err)}`;
+            }
+          } else {
+            errorMsg = `Transaction failed: ${JSON.stringify(data.err)}`;
+          }
+          throw new Error(errorMsg);
         }
         return; // Success
       }
