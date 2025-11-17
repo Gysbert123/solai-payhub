@@ -72,9 +72,21 @@ function ensureWatch(signature: string) {
 
   const unsubscribeId = connection.onSignature(
     signature,
-    (result) => {
+    async (result) => {
       if (result.err) {
-        finalize(signature, "error", "Transaction failed");
+        // Fetch transaction to get detailed error
+        try {
+          const tx = await connection.getTransaction(signature, {
+            commitment,
+            maxSupportedTransactionVersion: 0,
+          });
+          const errorMsg = tx?.meta?.err
+            ? JSON.stringify(tx.meta.err)
+            : "Transaction failed";
+          finalize(signature, "error", errorMsg);
+        } catch {
+          finalize(signature, "error", "Transaction failed");
+        }
       } else {
         finalize(signature, "confirmed");
       }
