@@ -711,20 +711,21 @@ export default function MarketplacePage() {
   // If rate limits occur, error handling will gracefully handle it
   const cluster = DEFAULT_CLUSTER;
   const defaultEndpoint = useMemo(() => clusterApiUrl(cluster), [cluster]);
-  const defaultWsEndpoint = useMemo(() => toWsUrl(defaultEndpoint), [defaultEndpoint]);
   const customRpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim();
   const [endpoint, setEndpoint] = useState(() =>
     resolveInitialEndpoint(customRpc, defaultEndpoint)
   );
   const [wsEndpoint, setWsEndpoint] = useState<string | undefined>(() =>
-    customRpc ? toWsUrl(resolveInitialEndpoint(customRpc, defaultEndpoint)) : defaultWsEndpoint
+    customRpc?.startsWith("http")
+      ? toWsUrl(resolveInitialEndpoint(customRpc, defaultEndpoint))
+      : undefined
   );
   const wallets = useMemo(() => [], []);
 
   useEffect(() => {
     if (!customRpc) {
       setEndpoint(defaultEndpoint);
-      setWsEndpoint(defaultWsEndpoint);
+      setWsEndpoint(undefined);
       return;
     }
     if (customRpc.startsWith("http://") || customRpc.startsWith("https://")) {
@@ -734,19 +735,19 @@ export default function MarketplacePage() {
     }
     if (customRpc.startsWith("/") && typeof window !== "undefined") {
       setEndpoint(new URL(customRpc, window.location.origin).toString());
-      setWsEndpoint(defaultWsEndpoint);
+      setWsEndpoint(undefined);
       return;
     }
     setEndpoint(defaultEndpoint);
-    setWsEndpoint(defaultWsEndpoint);
-  }, [customRpc, defaultEndpoint, defaultWsEndpoint]);
+    setWsEndpoint(undefined);
+  }, [customRpc, defaultEndpoint]);
 
   const connectionConfig = useMemo(
     () => ({
       commitment: "confirmed" as const,
-      wsEndpoint: wsEndpoint ?? defaultWsEndpoint,
+      wsEndpoint,
     }),
-    [wsEndpoint, defaultWsEndpoint]
+    [wsEndpoint]
   );
 
   return (

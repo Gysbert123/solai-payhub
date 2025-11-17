@@ -602,20 +602,19 @@ function toWsUrl(urlString: string | undefined) {
 export default function Home() {
   const network = "devnet";
   const fallbackEndpoint = useMemo(() => clusterApiUrl(network), [network]);
-  const fallbackWsEndpoint = useMemo(() => toWsUrl(fallbackEndpoint), [fallbackEndpoint]);
   const customRpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim();
   const [endpoint, setEndpoint] = useState(() =>
     resolveInitialEndpoint(customRpc, fallbackEndpoint)
   );
   const [wsEndpoint, setWsEndpoint] = useState<string | undefined>(() =>
-    customRpc ? toWsUrl(resolveInitialEndpoint(customRpc, fallbackEndpoint)) : fallbackWsEndpoint
+    customRpc?.startsWith("http") ? toWsUrl(resolveInitialEndpoint(customRpc, fallbackEndpoint)) : undefined
   );
   const wallets = useMemo(() => [], []);
 
   useEffect(() => {
     if (!customRpc) {
       setEndpoint(fallbackEndpoint);
-      setWsEndpoint(fallbackWsEndpoint);
+      setWsEndpoint(undefined);
       return;
     }
     if (customRpc.startsWith("http://") || customRpc.startsWith("https://")) {
@@ -625,19 +624,19 @@ export default function Home() {
     }
     if (customRpc.startsWith("/") && typeof window !== "undefined") {
       setEndpoint(new URL(customRpc, window.location.origin).toString());
-      setWsEndpoint(fallbackWsEndpoint);
+      setWsEndpoint(undefined);
       return;
     }
     setEndpoint(fallbackEndpoint);
-    setWsEndpoint(fallbackWsEndpoint);
-  }, [customRpc, fallbackEndpoint, fallbackWsEndpoint]);
+    setWsEndpoint(undefined);
+  }, [customRpc, fallbackEndpoint]);
 
   const connectionConfig = useMemo(
     () => ({
       commitment: "confirmed" as const,
-      wsEndpoint: wsEndpoint ?? fallbackWsEndpoint,
+      wsEndpoint,
     }),
-    [wsEndpoint, fallbackWsEndpoint]
+    [wsEndpoint]
   );
 
   return (
