@@ -1,11 +1,16 @@
 "use client";
 
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import dynamic from "next/dynamic";
+
+const WalletMultiButtonDynamic = dynamic(
+  async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
+  { ssr: false }
+);
 
 export const ConnectWalletButton = () => {
   return (
     <div className="flex justify-center mt-8">
-      <WalletMultiButton
+      <WalletMultiButtonDynamic
         style={{
           background: "linear-gradient(to right, #a855f7, #ec4899)",
           borderRadius: "9999px",

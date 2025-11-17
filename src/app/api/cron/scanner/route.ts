@@ -48,7 +48,7 @@ function pickChangePercent(data: Record<string, any> | undefined): number {
 async function fetchTokenSnapshot(mint: string): Promise<TokenSnapshot | null> {
   const apiKey = process.env.BIRDEYE_API_KEY;
   if (!apiKey) {
-    console.error('BIRDEYE_API_KEY missing');
+    // Silently return null during build/runtime if key is missing
     return null;
   }
 

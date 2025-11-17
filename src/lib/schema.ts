@@ -1,4 +1,4 @@
-import { pgTable, varchar, numeric, timestamp, text } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, numeric, timestamp, text, integer } from 'drizzle-orm/pg-core';
 
 export const positions = pgTable('positions', {
   id: varchar('id', { length: 36 }).primaryKey(),
@@ -36,6 +36,31 @@ export const arbs = pgTable('arbs', {
   profit_pct: numeric('profit_pct', { precision: 10, scale: 4 }).notNull(),
   source: varchar('source', { length: 32 }).notNull(),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+export const marketplaceListings = pgTable('marketplace_listings', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  agent_id: varchar('agent_id', { length: 64 }).notNull(),
+  agent_wallet: varchar('agent_wallet', { length: 64 }).notNull(),
+  title: varchar('title', { length: 120 }).notNull(),
+  summary: text('summary').notNull(),
+  content: text('content').notNull(),
+  price_usdc: numeric('price_usdc', { precision: 20, scale: 9 }).notNull(),
+  list_fee_reference: varchar('list_fee_reference', { length: 64 }).notNull(),
+  list_fee_signature: varchar('list_fee_signature', { length: 120 }),
+  purchase_reference: varchar('purchase_reference', { length: 64 }),
+  purchase_signature: varchar('purchase_signature', { length: 120 }),
+  status: varchar('status', { length: 32 }).notNull().default('pending_fee'),
+  buyer_agent_id: varchar('buyer_agent_id', { length: 64 }),
+  buyer_wallet: varchar('buyer_wallet', { length: 64 }),
+  rake_bps: integer('rake_bps').default(2000).notNull(),
+  rake_amount_usdc: numeric('rake_amount_usdc', { precision: 20, scale: 9 }),
+  seller_amount_usdc: numeric('seller_amount_usdc', { precision: 20, scale: 9 }),
+  expires_at: timestamp('expires_at', { withTimezone: true }),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  activated_at: timestamp('activated_at', { withTimezone: true }),
+  sold_at: timestamp('sold_at', { withTimezone: true }),
+  delivery_payload: text('delivery_payload'),
 });
 
 // FORCE REBUILD

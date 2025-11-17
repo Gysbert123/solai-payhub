@@ -1,8 +1,8 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { randomUUID } from 'crypto';
-import { positions, agentPayments, arbs } from './schema';
-import { eq, and, isNull, sql, inArray, desc } from 'drizzle-orm';
+import { positions, agentPayments, arbs, marketplaceListings } from './schema';
+import { eq, and, isNull, isNotNull, sql, inArray, desc, lt } from 'drizzle-orm';
 
 function isValidDatabaseUrl(url?: string) {
   if (!url) return false;
@@ -33,6 +33,7 @@ type PositionStatusUpdate = {
   sold_at: PositionRow['sold_at'];
 };
 type AgentPaymentRow = typeof agentPayments.$inferSelect;
+type MarketplaceListingRow = typeof marketplaceListings.$inferSelect;
 
 export function logAgentPayment(event: string, details: Record<string, unknown>) {
   console.log(`[agent-payment] ${event}`, details);
@@ -50,7 +51,7 @@ export async function savePosition(
   }
 
   return await db.insert(positions).values({
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     user_wallet: userWallet,
     token_mint: tokenMint,
     buy_amount: buyAmount,
@@ -98,7 +99,7 @@ export async function createAgentPayment(
     return null;
   }
 
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   await db.insert(agentPayments).values({
     id,
     agent_id: agentId,
@@ -284,4 +285,190 @@ export async function listRecentArbs(limit = 10) {
     .from(arbs)
     .orderBy(desc(arbs.created_at))
     .limit(limit);
+}
+
+export async function createMarketplaceListingDraft(params: {
+  agentId: string;
+  agentWallet: string;
+  title: string;
+  summary: string;
+  content: string;
+  priceUsdc: string;
+  listFeeReference: string;
+}) {
+  if (!db) {
+    console.warn('Database connection unavailable: createMarketplaceListingDraft skipped.');
+    return null;
+  }
+
+  const id = randomUUID();
+  const insertValues: typeof marketplaceListings.$inferInsert = {
+    id,
+    agent_id: params.agentId,
+    agent_wallet: params.agentWallet,
+    title: params.title,
+    summary: params.summary,
+    content: params.content,
+    price_usdc: params.priceUsdc,
+    list_fee_reference: params.listFeeReference,
+  };
+
+  await db.insert(marketplaceListings).values(insertValues);
+
+  return await getMarketplaceListingById(id);
+}
+
+export async function getMarketplaceListingById(id: string) {
+  if (!db) return null;
+
+  const [record] = await db
+    .select()
+    .from(marketplaceListings)
+    .where(eq(marketplaceListings.id, id))
+    .limit(1);
+
+  return record ?? null;
+}
+
+export async function getMarketplaceListingByReference(
+  reference: string,
+  mode: 'list' | 'purchase'
+) {
+  if (!db) return null;
+
+  const field =
+    mode === 'list'
+      ? marketplaceListings.list_fee_reference
+      : marketplaceListings.purchase_reference;
+
+  const [record] = await db
+    .select()
+    .from(marketplaceListings)
+    .where(eq(field, reference))
+    .limit(1);
+
+  return record ?? null;
+}
+
+export async function activateMarketplaceListing(
+  id: string,
+  signature: string,
+  expiresAt: Date | null
+) {
+  if (!db) return;
+
+  const updateValues: Partial<typeof marketplaceListings.$inferSelect> = {
+    status: 'active',
+    list_fee_signature: signature,
+    activated_at: new Date(),
+    expires_at: expiresAt ?? null,
+  };
+
+  await db
+    .update(marketplaceListings)
+    .set(updateValues)
+    .where(eq(marketplaceListings.id, id));
+}
+
+export async function listMarketplaceListings(options?: {
+  status?: Array<MarketplaceListingRow['status']>;
+  limit?: number;
+}) {
+  if (!db) return [];
+
+  const { status, limit = 20 } = options ?? {};
+  const baseQuery = db.select().from(marketplaceListings);
+  const filteredQuery =
+    status && status.length > 0
+      ? baseQuery.where(inArray(marketplaceListings.status, status))
+      : baseQuery;
+  const finalQuery = filteredQuery.orderBy(desc(marketplaceListings.created_at)).limit(limit);
+
+  return await finalQuery;
+}
+
+export async function reserveMarketplaceListingForBuyer(params: {
+  listingId: string;
+  buyerAgentId: string;
+  buyerWallet: string;
+  purchaseReference: string;
+}) {
+  if (!db) return null;
+
+  const updateValues: Partial<typeof marketplaceListings.$inferSelect> = {
+    status: 'awaiting_payment',
+    buyer_agent_id: params.buyerAgentId,
+    buyer_wallet: params.buyerWallet,
+    purchase_reference: params.purchaseReference,
+  };
+
+  await db
+    .update(marketplaceListings)
+    .set(updateValues)
+    .where(eq(marketplaceListings.id, params.listingId));
+
+  return await getMarketplaceListingById(params.listingId);
+}
+
+export async function confirmMarketplacePurchase(params: {
+  listingId: string;
+  signature: string;
+  rakeAmount: string;
+  sellerAmount: string;
+}) {
+  if (!db) return null;
+
+  const updateValues: Partial<typeof marketplaceListings.$inferSelect> = {
+    status: 'sold',
+    purchase_signature: params.signature,
+    sold_at: new Date(),
+    rake_amount_usdc: params.rakeAmount,
+    seller_amount_usdc: params.sellerAmount,
+  };
+
+  await db
+    .update(marketplaceListings)
+    .set(updateValues)
+    .where(eq(marketplaceListings.id, params.listingId));
+
+  return await getMarketplaceListingById(params.listingId);
+}
+
+export async function recordMarketplaceDelivery(listingId: string, payload: string) {
+  if (!db) return null;
+
+  const updateValues: Partial<typeof marketplaceListings.$inferSelect> = {
+    delivery_payload: payload,
+  };
+
+  await db
+    .update(marketplaceListings)
+    .set(updateValues)
+    .where(eq(marketplaceListings.id, listingId));
+
+  return await getMarketplaceListingById(listingId);
+}
+
+export async function expireMarketplaceListings(referenceDate = new Date()) {
+  if (!db) return 0;
+
+  const updateValues: Partial<typeof marketplaceListings.$inferSelect> = {
+    status: 'expired',
+  };
+
+  const result = await db
+    .update(marketplaceListings)
+    .set(updateValues)
+    .where(
+      and(
+        isNull(marketplaceListings.sold_at),
+        isNull(marketplaceListings.purchase_signature),
+        isNotNull(marketplaceListings.expires_at),
+        lt(marketplaceListings.expires_at, referenceDate),
+        inArray(marketplaceListings.status, ['active', 'awaiting_payment'])
+      )
+    )
+    .returning({ id: marketplaceListings.id });
+
+  return result.length;
 }

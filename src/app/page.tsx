@@ -1,13 +1,17 @@
 "use client";
 
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import dynamic from "next/dynamic";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { Transaction, SystemProgram, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { useState, useEffect, useMemo } from "react";
 import bs58 from "bs58";
-import "@solana/wallet-adapter-react-ui/styles.css";
 import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
+import "@solana/wallet-adapter-react-ui/styles.css";
+const WalletMultiButtonDynamic = dynamic(
+  async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
+  { ssr: false }
+);
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-wallets";
 import { clusterApiUrl } from "@solana/web3.js";
 import { sendTelegramSignal, sendTradeSuccess } from "@/lib/telegram";
@@ -393,7 +397,7 @@ function AppContent() {
       <p className="mb-8 text-center max-w-2xl">Pay once. Get AI insights, live arbs, and auto-trade.</p>
 
       <div className="flex justify-center mt-8">
-        <WalletMultiButton
+        <WalletMultiButtonDynamic
           style={{
             background: "linear-gradient(to right, #a855f7, #ec4899)",
             borderRadius: "9999px",

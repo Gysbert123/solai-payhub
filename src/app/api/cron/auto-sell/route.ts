@@ -6,6 +6,7 @@ import {
   Transaction,
 } from '@solana/web3.js';
 import { createJupiterApiClient } from '@jup-ag/api';
+import bs58 from 'bs58';
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const BIRDEYE_PRICE_API = 'https://public-api.birdeye.so/public/price?address=';
@@ -14,17 +15,29 @@ const PROFIT_THRESHOLD = 5;
 
 const jupiter = createJupiterApiClient();
 
-function loadTraderKeypair(): Keypair {
+function loadTraderKeypair(): Keypair | null {
   const secret = process.env.TRADER_PRIVATE_KEY;
   if (!secret) {
-    throw new Error('Missing TRADER_PRIVATE_KEY');
+    return null;
   }
 
   try {
+    // Try JSON format first (array of numbers)
     const bytes = JSON.parse(secret);
-    return Keypair.fromSecretKey(Uint8Array.from(bytes));
+    if (Array.isArray(bytes)) {
+      return Keypair.fromSecretKey(Uint8Array.from(bytes));
+    }
+  } catch {
+    // Not JSON, try base58 format
+  }
+
+  try {
+    // Try base58 format (as instructed in chat history)
+    const decoded = bs58.decode(secret);
+    return Keypair.fromSecretKey(decoded);
   } catch (err) {
-    throw new Error('Failed to parse TRADER_PRIVATE_KEY');
+    console.error('Failed to parse TRADER_PRIVATE_KEY (tried both JSON and base58):', err);
+    return null;
   }
 }
 
@@ -42,7 +55,7 @@ function createConnection(): Connection {
 async function fetchPrice(mint: string): Promise<number | null> {
   const apiKey = process.env.BIRDEYE_API_KEY;
   if (!apiKey) {
-    console.error('Missing BIRDEYE_API_KEY.');
+    // Silently return null during build/runtime if key is missing
     return null;
   }
 
@@ -129,7 +142,7 @@ async function sendSellAlert(tokenMint: string, profit: number, signature: strin
 
 export async function GET() {
   let connection: Connection;
-  let trader: Keypair;
+  let trader: Keypair | null;
 
   try {
     connection = createConnection();
@@ -138,6 +151,13 @@ export async function GET() {
     console.error('Auto-sell setup failed:', error);
     return NextResponse.json({ error: 'Auto-sell misconfigured' }, { status: 500 });
   }
+
+  if (!trader) {
+    return NextResponse.json({ error: 'TRADER_PRIVATE_KEY not configured' }, { status: 503 });
+  }
+
+  // TypeScript: trader is guaranteed to be non-null after the check above
+  const traderKeypair: Keypair = trader;
 
   const trades = await getOpenTrades();
   let soldCount = 0;
@@ -159,7 +179,7 @@ export async function GET() {
       const lamports = Math.floor(size * 1e9);
       if (!Number.isFinite(lamports) || lamports <= 0) continue;
 
-      const signature = await executeSwap(connection, trader, trade.token_mint, lamports);
+      const signature = await executeSwap(connection, traderKeypair, trade.token_mint, lamports);
       if (!signature) continue;
 
       await markTradeAsSold(trade.id, profitPct);
