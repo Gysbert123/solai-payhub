@@ -77,7 +77,7 @@ function ensureWatch(signature: string) {
         // Fetch transaction to get detailed error
         try {
           const tx = await connection.getTransaction(signature, {
-            commitment,
+            commitment: "confirmed",
             maxSupportedTransactionVersion: 0,
           });
           const errorMsg = tx?.meta?.err
