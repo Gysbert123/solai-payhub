@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { Transaction, SystemProgram, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { useState, useEffect, useMemo } from "react";
@@ -408,6 +409,16 @@ function AppContent() {
           }}
           className="hover:scale-105"
         />
+      </div>
+
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-sm">
+        <Link
+            href="/marketplace"
+            className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-6 py-3 font-semibold text-white transition hover:bg-white/20 hover:text-white"
+          >
+            Open AI Marketplace
+        </Link>
+        <span className="text-gray-400">List insights for 0.001&nbsp;USDC · Sell data for 0.005&nbsp;USDC</span>
       </div>
 
       {connected && !isPaid() && status === "idle" && (
