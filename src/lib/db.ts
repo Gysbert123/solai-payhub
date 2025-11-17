@@ -387,6 +387,28 @@ export async function listMarketplaceListings(options?: {
   return await finalQuery;
 }
 
+export async function getPurchasedListingsByWallet(
+  buyerWallet: string,
+  limit = 50
+): Promise<MarketplaceListingRow[]> {
+  if (!db) {
+    console.warn('Database connection unavailable: returning empty purchased listings.');
+    return [];
+  }
+
+  return await db
+    .select()
+    .from(marketplaceListings)
+    .where(
+      and(
+        eq(marketplaceListings.buyer_wallet, buyerWallet),
+        eq(marketplaceListings.status, 'sold')
+      )
+    )
+    .orderBy(desc(marketplaceListings.sold_at))
+    .limit(limit);
+}
+
 export async function reserveMarketplaceListingForBuyer(params: {
   listingId: string;
   buyerAgentId: string;

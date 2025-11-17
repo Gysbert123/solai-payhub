@@ -193,6 +193,8 @@ function MarketplaceContent() {
   const [purchaseStatus, setPurchaseStatus] = useState<string | null>(null);
   const [purchasePaymentProcessing, setPurchasePaymentProcessing] = useState(false);
   const [deliveryContent, setDeliveryContent] = useState<{ listingId: string; content?: string } | null>(null);
+  const [purchasedListings, setPurchasedListings] = useState<MarketplaceListing[]>([]);
+  const [showPurchases, setShowPurchases] = useState(false);
 
   const projectWalletKey = useMemo(
     () => parsePublicKey(process.env.NEXT_PUBLIC_PROJECT_WALLET),
@@ -253,9 +255,25 @@ function MarketplaceContent() {
     }
   }, []);
 
+  const fetchPurchasedListings = useCallback(async () => {
+    if (!publicKey) return;
+    try {
+      const res = await fetch(`/api/marketplace/purchases?wallet=${publicKey.toBase58()}`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
+      setPurchasedListings(data.listings ?? []);
+    } catch (err) {
+      console.error("Failed to fetch purchased listings:", err);
+    }
+  }, [publicKey]);
+
   useEffect(() => {
     fetchListings();
-  }, [fetchListings]);
+    if (publicKey) {
+      fetchPurchasedListings();
+    }
+  }, [fetchListings, fetchPurchasedListings, publicKey]);
 
   const onListInputChange = (field: keyof typeof listForm, value: string) => {
     setListForm((prev) => ({ ...prev, [field]: value }));
@@ -400,6 +418,7 @@ function MarketplaceContent() {
         setDeliveryContent({ listingId: pendingPurchase.listingId, content: data.content });
         setPendingPurchase(null);
         fetchListings();
+        fetchPurchasedListings(); // Refresh purchased listings
       } else {
         setPurchaseStatus(data.error || "Payment validation failed");
       }
@@ -799,6 +818,63 @@ function MarketplaceContent() {
             </div>
           )}
         </section>
+
+        {connected && (
+          <section className="bg-white/5 rounded-xl p-6 border border-white/10">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">My Purchases</h2>
+              <button
+                onClick={() => {
+                  setShowPurchases(!showPurchases);
+                  if (!showPurchases && purchasedListings.length === 0) {
+                    fetchPurchasedListings();
+                  }
+                }}
+                className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg text-sm font-semibold"
+              >
+                {showPurchases ? "Hide" : "Show"} Purchases ({purchasedListings.length})
+              </button>
+            </div>
+
+            {showPurchases && (
+              <div className="space-y-4">
+                {purchasedListings.length === 0 ? (
+                  <p className="text-gray-400 text-sm">No purchases yet. Buy an insight to see it here!</p>
+                ) : (
+                  purchasedListings.map((listing) => (
+                    <div
+                      key={listing.id}
+                      className="bg-black/40 border border-green-400/40 rounded-lg p-4 space-y-2"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-green-200">{listing.title}</h3>
+                          <p className="text-xs text-gray-400 mt-1">{listing.summary}</p>
+                          {listing.sold_at && (
+                            <p className="text-xs text-gray-500 mt-2">
+                              Purchased: {new Date(listing.sold_at).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+                        <span className="bg-green-500/20 text-green-300 px-2 py-1 rounded text-xs font-semibold">
+                          Purchased
+                        </span>
+                      </div>
+                      {listing.content && (
+                        <div className="mt-3 pt-3 border-t border-white/10">
+                          <h4 className="text-sm font-semibold text-green-300 mb-2">Insight Content:</h4>
+                          <pre className="whitespace-pre-wrap text-xs text-gray-200 bg-black/60 p-3 rounded">
+                            {listing.content}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </main>
   );
