@@ -83,6 +83,7 @@ async function ensureAssociatedTokenAccount(
       
       // Success - ATA exists or doesn't exist, we have the info
       if (!accountInfo) {
+        // Account doesn't exist, add creation instruction
         instructions.push(
           createAssociatedTokenAccountInstruction(
             payer,
@@ -92,6 +93,10 @@ async function ensureAssociatedTokenAccount(
             TOKEN_2022_PROGRAM_ID
           )
         );
+      } else {
+        // Account exists - verify it's a valid token account
+        // If it's not a token account, we'll need to handle it differently
+        // But for now, if accountInfo exists, we assume it's valid
       }
       return { ata, instructions };
     } catch (error: any) {
@@ -172,8 +177,8 @@ function MarketplaceContent() {
   );
 
   const waitForBackendConfirmation = useCallback(async (signature: string) => {
-    // Poll the simple confirmation endpoint
-    for (let i = 0; i < 30; i++) {
+    // Poll the simple confirmation endpoint - increased timeout to 60 seconds
+    for (let i = 0; i < 60; i++) {
       const res = await fetch(`/api/confirm?sig=${signature}`);
       const data = await res.json();
 
@@ -183,7 +188,9 @@ function MarketplaceContent() {
           let errorMsg = "Transaction failed";
           if (data.err.InstructionError) {
             const [ixIndex, err] = data.err.InstructionError;
-            if (err.Custom) {
+            if (err.Custom === 2) {
+              errorMsg = `Instruction ${ixIndex} failed: Insufficient funds for rent or account creation. Make sure you have enough SOL (0.002+ SOL) for creating token accounts.`;
+            } else if (err.Custom) {
               errorMsg = `Instruction ${ixIndex} failed with error code ${err.Custom}. This usually means insufficient funds or a program error.`;
             } else {
               errorMsg = `Instruction ${ixIndex} failed: ${JSON.stringify(err)}`;
@@ -200,7 +207,7 @@ function MarketplaceContent() {
       await new Promise((r) => setTimeout(r, 500));
     }
 
-    throw new Error("Confirmation timeout");
+    throw new Error("Confirmation timeout - transaction may still be processing. Check Solscan for status.");
   }, []);
 
   const fetchListings = useCallback(async () => {
@@ -404,14 +411,19 @@ function MarketplaceContent() {
       }
 
       // Check balances and warn, but don't block - let wallet handle rejection
+      // Note: If ATA doesn't exist yet, balance check will fail - that's OK, it will be created
       try {
         const balance = await connection.getBalance(publicKey);
-        const usdcBalance = await connection.getTokenAccountBalance(payerAta).catch(() => null);
         if (balance < 0.001 * 1e9) {
           console.warn("Low SOL balance - transaction may fail");
         }
-        if (!usdcBalance || Number(usdcBalance.value.amount) < Number(amountMinor)) {
-          console.warn(`Low USDC balance - need ${pendingListingPayment.amount} USDC`);
+        // Only check USDC balance if ATA already exists
+        const accountInfo = await connection.getAccountInfo(payerAta).catch(() => null);
+        if (accountInfo) {
+          const usdcBalance = await connection.getTokenAccountBalance(payerAta).catch(() => null);
+          if (!usdcBalance || Number(usdcBalance.value.amount) < Number(amountMinor)) {
+            console.warn(`Low USDC balance - need ${pendingListingPayment.amount} USDC`);
+          }
         }
       } catch {
         // Ignore balance check errors - proceed and let wallet/wallet reject if needed
