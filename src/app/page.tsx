@@ -634,9 +634,10 @@ export default function Home() {
   const connectionConfig = useMemo(
     () => ({
       commitment: "confirmed" as const,
-      wsEndpoint,
+      disableWs: true,
+      confirmTransactionInitialTimeout: 30_000,
     }),
-    [wsEndpoint]
+    []
   );
 
   return (

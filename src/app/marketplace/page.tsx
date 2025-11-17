@@ -172,43 +172,23 @@ function MarketplaceContent() {
   );
 
   const waitForBackendConfirmation = useCallback(async (signature: string) => {
-    const reportRes = await fetch("/api/tx-status/report", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ signature }),
-    });
-    if (!reportRes.ok) {
-      const details = await reportRes.json().catch(() => null);
-      throw new Error(details?.error || "Unable to register confirmation watcher");
+    // Poll the simple confirmation endpoint
+    for (let i = 0; i < 30; i++) {
+      const res = await fetch(`/api/confirm?sig=${signature}`);
+      const data = await res.json();
+
+      if (data.confirmed) {
+        if (data.err) {
+          throw new Error(`Transaction failed: ${JSON.stringify(data.err)}`);
+        }
+        return; // Success
+      }
+
+      // Wait 500ms before next poll
+      await new Promise((r) => setTimeout(r, 500));
     }
 
-    return new Promise<void>((resolve, reject) => {
-      const source = new EventSource(`/api/tx-status/subscribe?signature=${signature}`);
-      const cleanup = () => {
-        source.close();
-      };
-
-      source.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (payload.status === "confirmed") {
-            cleanup();
-            resolve();
-          } else if (payload.status === "error" || payload.status === "timeout") {
-            cleanup();
-            reject(new Error(payload.error || payload.status));
-          }
-        } catch (err) {
-          cleanup();
-          reject(err);
-        }
-      };
-
-      source.onerror = () => {
-        cleanup();
-        reject(new Error("Confirmation stream disconnected"));
-      };
-    });
+    throw new Error("Confirmation timeout");
   }, []);
 
   const fetchListings = useCallback(async () => {
@@ -814,9 +794,10 @@ export default function MarketplacePage() {
   const connectionConfig = useMemo(
     () => ({
       commitment: "confirmed" as const,
-      wsEndpoint,
+      disableWs: true,
+      confirmTransactionInitialTimeout: 30_000,
     }),
-    [wsEndpoint]
+    []
   );
 
   return (
