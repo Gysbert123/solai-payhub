@@ -231,7 +231,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Service unavailable' }, { status: 503 });
   }
 
-  const paymentUrl = encodeURL({
+  const paymentFields: any = {
     recipient: new PublicKey(PROJECT_WALLET),
     amount: PURCHASE_PRICE,
     splToken: USDC_MINT,
@@ -240,7 +240,9 @@ export async function POST(req: NextRequest) {
     label: 'SolAI Marketplace Purchase',
     message: `${listing.title} purchase`,
     memo: listing.id,
-  }).toString();
+  };
+
+  const paymentUrl = encodeURL(paymentFields).toString();
 
   return NextResponse.json(
     {
