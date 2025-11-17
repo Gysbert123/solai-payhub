@@ -691,15 +691,20 @@ export default function MarketplacePage() {
   // This endpoint is mainly for read operations (checking balances, account info)
   // Server-side uses Helius RPC with API key (secure) for transaction verification
   // If rate limits occur, error handling will gracefully handle it
+  const cluster = DEFAULT_CLUSTER;
+  const defaultEndpoint = useMemo(() => clusterApiUrl(cluster), [cluster]);
+  const customRpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim();
+  const shouldUseCustom =
+    customRpc &&
+    customRpc.length > 0 &&
+    !/helius|api-key=/i.test(customRpc); // Avoid exposing private RPC keys client-side
+
   const endpoint = useMemo(() => {
-    if (process.env.NEXT_PUBLIC_SOLANA_RPC_URL) {
-      return process.env.NEXT_PUBLIC_SOLANA_RPC_URL;
+    if (shouldUseCustom && customRpc) {
+      return customRpc;
     }
-    // Default to mainnet public endpoint
-    // Rate limits may occur, but error handling will handle it gracefully
-    // Transactions themselves often use Phantom's own RPC infrastructure
-    return clusterApiUrl('mainnet-beta');
-  }, []);
+    return defaultEndpoint;
+  }, [shouldUseCustom, customRpc, defaultEndpoint]);
   const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
 
   return (
