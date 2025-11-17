@@ -12,7 +12,7 @@ import {
 
 const PROJECT_WALLET = process.env.NEXT_PUBLIC_PROJECT_WALLET;
 const SOLANA_ENDPOINT = process.env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com';
-const USDC_MINT_ADDRESS = process.env.NEXT_PUBLIC_USDC_MINT ?? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyK7fDi';
+const USDC_MINT_ADDRESS = process.env.NEXT_PUBLIC_USDC_MINT ?? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 let parsedUsdcMint: PublicKey | null = null;
 
 try {
@@ -21,7 +21,7 @@ try {
   console.error('Invalid NEXT_PUBLIC_USDC_MINT provided:', err);
 }
 
-const USDC_MINT = parsedUsdcMint ?? new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyK7fDi');
+const USDC_MINT = parsedUsdcMint ?? new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const USDC_DECIMALS = 6;
 
 const PURCHASE_PRICE = new BigNumber(0.005);

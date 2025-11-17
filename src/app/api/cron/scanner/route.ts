@@ -16,7 +16,7 @@ const TOKENS = [
   },
 ];
 
-const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyK7fDi';
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const PROFIT_THRESHOLD = 0.5;
 
 type TokenSnapshot = {

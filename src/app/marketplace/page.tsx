@@ -46,7 +46,7 @@ const DEFAULT_CLUSTER = process.env.NEXT_PUBLIC_SOLANA_CLUSTER === "devnet" ? "d
 // Devnet USDC mint (fake USDC for testing)
 const DEFAULT_USDC_MINT_DEVNET = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 // Mainnet USDC mint (real USDC)
-const DEFAULT_USDC_MINT_MAINNET = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyK7fDi";
+const DEFAULT_USDC_MINT_MAINNET = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const DEFAULT_USDC_MINT = DEFAULT_CLUSTER === "devnet" ? DEFAULT_USDC_MINT_DEVNET : DEFAULT_USDC_MINT_MAINNET;
 
 function parsePublicKey(value: string | undefined | null): PublicKey | null {
