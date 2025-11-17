@@ -13,7 +13,6 @@ const WalletMultiButtonDynamic = dynamic(
   async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
   { ssr: false }
 );
-import { PhantomWalletAdapter } from "@solana/wallet-adapter-wallets";
 import { clusterApiUrl } from "@solana/web3.js";
 import { sendTelegramSignal, sendTradeSuccess } from "@/lib/telegram";
 
@@ -584,7 +583,7 @@ function AppContent() {
 export default function Home() {
   const network = "devnet";
   const endpoint = useMemo(() => clusterApiUrl(network), []);
-  const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
+  const wallets = useMemo(() => [], []);
 
   return (
     <ConnectionProvider endpoint={endpoint}>
