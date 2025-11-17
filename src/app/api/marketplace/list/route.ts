@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { encodeURL, findReference, FindReferenceError } from '@solana/pay';
 import BigNumber from 'bignumber.js';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
+import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import {
   activateMarketplaceListing,
   createMarketplaceListingDraft,
@@ -251,6 +252,7 @@ export async function POST(req: NextRequest) {
     recipient: new PublicKey(PROJECT_WALLET),
     amount: LISTING_FEE_AMOUNT,
     splToken: USDC_MINT,
+    tokenProgram: TOKEN_2022_PROGRAM_ID,
     reference: new PublicKey(listReference),
     label: 'SolAI Marketplace Listing',
     message: `${title} listing fee`,
