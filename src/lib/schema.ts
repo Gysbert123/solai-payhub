@@ -75,4 +75,13 @@ export const marketplacePurchases = pgTable('marketplace_purchases', {
   purchased_at: timestamp('purchased_at', { withTimezone: true }).defaultNow(),
 });
 
+export const sweepLogs = pgTable('sweep_logs', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  sol_swept: numeric('sol_swept', { precision: 20, scale: 9 }).default('0'),
+  usdc_swept: numeric('usdc_swept', { precision: 20, scale: 9 }).default('0'),
+  sol_signature: varchar('sol_signature', { length: 120 }),
+  usdc_signature: varchar('usdc_signature', { length: 120 }),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
 // FORCE REBUILD

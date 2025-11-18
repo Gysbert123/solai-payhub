@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS sweep_logs (\n  id VARCHAR(36) PRIMARY KEY,\n  sol_swept NUMERIC(20,9) DEFAULT 0,\n  usdc_swept NUMERIC(20,9) DEFAULT 0,\n  sol_signature VARCHAR(120),\n  usdc_signature VARCHAR(120),\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\nCREATE INDEX IF NOT EXISTS idx_sweep_logs_created_at ON sweep_logs(created_at DESC);\n

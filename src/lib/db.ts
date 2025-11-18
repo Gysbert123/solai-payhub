@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { randomUUID } from 'crypto';
-import { positions, agentPayments, arbs, marketplaceListings, marketplacePurchases } from './schema';
+import { positions, agentPayments, arbs, marketplaceListings, marketplacePurchases, sweepLogs } from './schema';
 import { eq, and, isNull, isNotNull, sql, inArray, desc, lt } from 'drizzle-orm';
 
 function isValidDatabaseUrl(url?: string) {
@@ -644,4 +644,24 @@ export async function resetStaleAwaitingPaymentListings() {
     .returning({ id: marketplaceListings.id });
 
   return result.length;
+}
+
+export async function recordSweepLog(params: {
+  solSwept: string;
+  usdcSwept: string;
+  solSignature?: string;
+  usdcSignature?: string;
+}) {
+  if (!db) {
+    console.warn('Database connection unavailable: sweep log skipped.');
+    return null;
+  }
+
+  return await db.insert(sweepLogs).values({
+    id: randomUUID(),
+    sol_swept: params.solSwept,
+    usdc_swept: params.usdcSwept,
+    sol_signature: params.solSignature,
+    usdc_signature: params.usdcSignature,
+  });
 }

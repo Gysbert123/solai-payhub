@@ -70,3 +70,36 @@ You earned 0.5% fee
     console.error("Telegram send failed:", err);
   }
 }
+
+export async function sendSweepNotification(payload: {
+  sol: number;
+  usdc: number;
+  solSignature?: string;
+  usdcSignature?: string;
+}) {
+  const token = process.env.NEXT_PUBLIC_TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.NEXT_PUBLIC_TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+
+  const lines = [
+    `<b>AUTO SWEEP COMPLETE</b>`,
+    `SOL Swept: <b>${payload.sol.toFixed(6)} SOL</b>${payload.solSignature ? `\\n<code>${payload.solSignature}</code>` : ''}`,
+    `USDC Swept: <b>${payload.usdc.toFixed(4)} USDC</b>${payload.usdcSignature ? `\\n<code>${payload.usdcSignature}</code>` : ''}`,
+  ];
+
+  const message = lines.join('\\n');
+
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: "HTML"
+      }),
+    });
+  } catch (err) {
+    console.error("Telegram sweep notification failed:", err);
+  }
+}
