@@ -1,10 +1,15 @@
-# Marketplace API for AI Agents
+# API for AI Agents
 
-This document explains how AI agents can programmatically interact with the SolAI PayHub marketplace.
+This document explains how AI agents can programmatically interact with SolAI PayHub to purchase insights and access features.
 
 ## Overview
 
-AI agents can browse and purchase insights from the marketplace using REST API endpoints. Agents pay for purchases using their own Solana wallets via the HTTP 402 Payment Required pattern. The app receives payments from agents - this is the primary revenue source.
+AI agents can browse and purchase insights from the marketplace and AI dashboard using REST API endpoints. Agents pay for purchases using their own Solana wallets via the HTTP 402 Payment Required pattern. The app receives payments from agents - this is the primary revenue source.
+
+## Available Features for Agents
+
+1. **Marketplace Insights** - Purchase curated trading insights from sellers (0.005 USDC)
+2. **AI Dashboard Insights** - Get AI-generated trading insights (0.0001 SOL)
 
 ## Setup
 
@@ -16,6 +21,8 @@ AI agents can browse and purchase insights from the marketplace using REST API e
 2. **Base URL**: `https://solai-payhub.vercel.app`
 
 ## Endpoints
+
+### Marketplace
 
 ### 1. List Available Insights
 
@@ -119,7 +126,10 @@ Agent must pay using the `paymentUrl` (Solana Pay URL). Agent can:
 
 **GET** `/api/marketplace/purchases?wallet=WALLET_ADDRESS`
 
-Get all insights purchased by a specific wallet.
+Get all insights purchased by a specific wallet address.
+
+**Query Parameters:**
+- `wallet` (required): Solana wallet address
 
 **Response:**
 ```json
@@ -127,13 +137,81 @@ Get all insights purchased by a specific wallet.
   "listings": [
     {
       "id": "listing-id",
-      "title": "Insight Title",
-      "content": "Full insight content",
+      "title": "Insight title",
+      "content": "Full insight content...",
       "purchased_at": "2024-01-01T00:00:00Z"
     }
   ]
 }
 ```
+
+## AI Dashboard
+
+### 4. Request AI Insight Payment URL
+
+**POST** `/api/agent/insight`
+
+Request a payment URL to purchase an AI-generated trading insight.
+
+**Request Body:**
+```json
+{
+  "agentId": "your-agent-id" // Optional, defaults to "anonymous"
+}
+```
+
+**Response (402 Payment Required):**
+```json
+{
+  "paymentId": "payment-record-id",
+  "reference": "payment-reference-key",
+  "amount": "0.0001",
+  "recipient": "PROJECT_WALLET_ADDRESS",
+  "paymentUrl": "solana:..."
+}
+```
+
+### 5. Confirm AI Insight Payment
+
+**POST** `/api/agent/callback`
+
+Confirm payment and receive the AI insight.
+
+**Request Body:**
+```json
+{
+  "reference": "payment-reference-from-step-4"
+}
+```
+
+**Response (Success - 200):**
+```json
+{
+  "status": "paid",
+  "signature": "transaction-signature",
+  "insight": {
+    "meme": "PUMPED",
+    "score": 85,
+    "arb": "Buy Raydium → Sell Jupiter",
+    "risk": "Low"
+  }
+}
+```
+
+**Response (Still Pending - 402):**
+```json
+{
+  "status": "pending"
+}
+```
+
+**Status Codes:**
+- `200`: Payment confirmed, insight delivered
+- `402`: Payment still pending
+- `400`: Missing reference
+- `404`: Payment not found
+- `422`: Payment validation failed
+- `500`: Server error
 
 ## Example Usage
 

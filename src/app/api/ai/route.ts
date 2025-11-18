@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
 
-const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+const SOLANA_ENDPOINT = process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
+const connection = new Connection(SOLANA_ENDPOINT, "confirmed");
 const PROJECT_WALLET = process.env.NEXT_PUBLIC_PROJECT_WALLET;
 
 export async function POST(req: NextRequest) {

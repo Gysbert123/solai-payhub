@@ -112,7 +112,26 @@ function AppContent() {
       });
       const sigStr = typeof signature === "string" ? signature : bs58.encode(signature);
 
-      await connection.confirmTransaction(sigStr, "confirmed");
+      // Use polling confirmation instead of timeout-based confirmation
+      let confirmed = false;
+      for (let i = 0; i < 60; i++) {
+        const res = await fetch(`/api/confirm?sig=${sigStr}`);
+        const data = await res.json();
+
+        if (data.confirmed) {
+          if (data.err) {
+            throw new Error(`Transaction failed: ${JSON.stringify(data.err)}`);
+          }
+          confirmed = true;
+          break;
+        }
+
+        await new Promise((r) => setTimeout(r, 500));
+      }
+
+      if (!confirmed) {
+        throw new Error("Confirmation timeout - transaction may still be processing. Check Solscan for status.");
+      }
 
       localStorage.setItem(
         `paid_${publicKey.toBase58()}`,
@@ -153,7 +172,26 @@ function AppContent() {
       const sigStr = typeof signature === "string" ? signature : bs58.encode(signature);
       console.log("AI Payment Tx:", sigStr);
 
-      await connection.confirmTransaction(sigStr, "confirmed");
+      // Use polling confirmation instead of timeout-based confirmation
+      let confirmed = false;
+      for (let i = 0; i < 60; i++) {
+        const res = await fetch(`/api/confirm?sig=${sigStr}`);
+        const data = await res.json();
+
+        if (data.confirmed) {
+          if (data.err) {
+            throw new Error(`Transaction failed: ${JSON.stringify(data.err)}`);
+          }
+          confirmed = true;
+          break;
+        }
+
+        await new Promise((r) => setTimeout(r, 500));
+      }
+
+      if (!confirmed) {
+        throw new Error("Confirmation timeout - transaction may still be processing. Check Solscan for status.");
+      }
 
       let txData;
       for (let i = 0; i < 5; i++) {
@@ -278,7 +316,26 @@ function AppContent() {
       });
       const sigStr = typeof signature === "string" ? signature : bs58.encode(signature);
 
-      await connection.confirmTransaction(sigStr, "confirmed");
+      // Use polling confirmation instead of timeout-based confirmation
+      let confirmed = false;
+      for (let i = 0; i < 60; i++) {
+        const res = await fetch(`/api/confirm?sig=${sigStr}`);
+        const data = await res.json();
+
+        if (data.confirmed) {
+          if (data.err) {
+            throw new Error(`Transaction failed: ${JSON.stringify(data.err)}`);
+          }
+          confirmed = true;
+          break;
+        }
+
+        await new Promise((r) => setTimeout(r, 500));
+      }
+
+      if (!confirmed) {
+        throw new Error("Confirmation timeout - transaction may still be processing. Check Solscan for status.");
+      }
 
       const pairLabel = `${arb.base_symbol}/${arb.quote_symbol}`;
       const profitLabel = `${profit >= 0 ? "+" : ""}${profit.toFixed(2)}%`;
