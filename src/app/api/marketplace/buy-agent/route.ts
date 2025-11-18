@@ -1,70 +1,124 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
-import { 
-  getAssociatedTokenAddress, 
-  createAssociatedTokenAccountInstruction,
-  createTransferCheckedInstruction,
-  TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID,
-} from '@solana/spl-token';
-import bs58 from 'bs58';
+import { encodeURL, findReference, FindReferenceError } from '@solana/pay';
+import BigNumber from 'bignumber.js';
+import { Connection, Keypair, PublicKey } from '@solana/web3.js';
+import { TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import {
   confirmMarketplacePurchase,
   getMarketplaceListingById,
   reserveMarketplaceListingForBuyer,
 } from '@/lib/db';
-import BigNumber from 'bignumber.js';
 
 const PROJECT_WALLET = process.env.NEXT_PUBLIC_PROJECT_WALLET;
 const SOLANA_ENDPOINT = process.env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com';
 const USDC_MINT_ADDRESS = process.env.NEXT_PUBLIC_USDC_MINT ?? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-const AGENT_WALLET_KEY = process.env.AGENT_WALLET_PRIVATE_KEY; // Base58 encoded private key for agent payments
 
-const USDC_MINT = new PublicKey(USDC_MINT_ADDRESS);
-const USDC_DECIMALS = 6;
-const PURCHASE_PRICE = new BigNumber(0.005);
-
-async function getTokenProgramId(connection: Connection, mint: PublicKey) {
-  try {
-    const mintInfo = await connection.getAccountInfo(mint);
-    if (!mintInfo) return TOKEN_2022_PROGRAM_ID;
-    return mintInfo.owner.equals(TOKEN_2022_PROGRAM_ID) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
-  } catch {
-    return TOKEN_2022_PROGRAM_ID;
-  }
+let parsedUsdcMint: PublicKey | null = null;
+try {
+  parsedUsdcMint = new PublicKey(USDC_MINT_ADDRESS);
+} catch (err) {
+  console.error('Invalid NEXT_PUBLIC_USDC_MINT provided:', err);
 }
 
-function loadAgentKeypair(): Keypair | null {
-  if (!AGENT_WALLET_KEY) {
-    console.warn('AGENT_WALLET_PRIVATE_KEY not configured');
-    return null;
+const USDC_MINT = parsedUsdcMint ?? new PublicKey(USDC_MINT_ADDRESS);
+const USDC_DECIMALS = 6;
+const PURCHASE_PRICE = new BigNumber(0.005);
+const DEFAULT_RAKE_BPS = 2000;
+
+function sanitizeString(value: unknown, maxLength: number) {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, maxLength);
+}
+
+function calculateRakeTotals(rakeBps: number) {
+  const gross = PURCHASE_PRICE;
+  const rake = gross.multipliedBy(rakeBps).dividedBy(10_000);
+  const seller = gross.minus(rake);
+  return { gross, rake, seller };
+}
+
+function buildPhantomUrl(paymentUrl: string) {
+  return `https://phantom.app/ul/v1/pay?link=${encodeURIComponent(paymentUrl)}`;
+}
+
+async function assertUsdcTransfer(
+  connection: Connection,
+  signature: string,
+  recipientWallet: PublicKey,
+  expectedAmount: BigNumber,
+  reference: PublicKey
+) {
+  const tx = await connection.getTransaction(signature, {
+    commitment: 'confirmed',
+    maxSupportedTransactionVersion: 0,
+  });
+
+  if (!tx || !tx.meta) {
+    throw new Error('transaction not found');
   }
-  try {
-    // Try base58 first
-    const secretKey = bs58.decode(AGENT_WALLET_KEY);
-    return Keypair.fromSecretKey(secretKey);
-  } catch {
-    try {
-      // Try JSON array
-      const parsed = JSON.parse(AGENT_WALLET_KEY);
-      if (Array.isArray(parsed)) {
-        return Keypair.fromSecretKey(Uint8Array.from(parsed));
-      }
-    } catch {
-      console.error('Failed to parse AGENT_WALLET_PRIVATE_KEY');
-    }
+
+  const message = tx.transaction.message;
+  let accountKeys: PublicKey[] = [];
+
+  if ('accountKeys' in message) {
+    accountKeys = message.accountKeys;
+  } else {
+    const lookups = message.getAccountKeys({
+      accountKeysFromLookups: {
+        writable: tx.meta.loadedAddresses?.writable.map((key) => new PublicKey(key)) ?? [],
+        readonly: tx.meta.loadedAddresses?.readonly.map((key) => new PublicKey(key)) ?? [],
+      },
+    });
+    accountKeys = [
+      ...lookups.staticAccountKeys,
+      ...(lookups.accountKeysFromLookups?.writable ?? []),
+      ...(lookups.accountKeysFromLookups?.readonly ?? []),
+    ];
   }
-  return null;
+
+  const hasReference = accountKeys.some((key) => key.equals(reference));
+  if (!hasReference) {
+    throw new Error('reference not found');
+  }
+
+  const expectedMinor = expectedAmount
+    .multipliedBy(new BigNumber(10).pow(USDC_DECIMALS))
+    .integerValue(BigNumber.ROUND_FLOOR);
+
+  const postBalances = tx.meta.postTokenBalances ?? [];
+  const preBalances = tx.meta.preTokenBalances ?? [];
+  const recipientBalances = postBalances.filter(
+    (balance) =>
+      balance.owner === recipientWallet.toBase58() && balance.mint === USDC_MINT.toBase58()
+  );
+
+  if (recipientBalances.length === 0) {
+    throw new Error('recipient token balance not found');
+  }
+
+  const received = recipientBalances.some((postBalance) => {
+    const preBalance = preBalances.find(
+      (entry) => entry.accountIndex === postBalance.accountIndex
+    );
+
+    const postAmount = new BigNumber(postBalance.uiTokenAmount.amount);
+    const preAmount = new BigNumber(preBalance?.uiTokenAmount.amount ?? '0');
+    const delta = postAmount.minus(preAmount);
+
+    return delta.gte(expectedMinor);
+  });
+
+  if (!received) {
+    throw new Error('amount not transferred');
+  }
 }
 
 export async function POST(req: NextRequest) {
   if (!PROJECT_WALLET) {
     return NextResponse.json({ error: 'Project wallet misconfigured' }, { status: 500 });
   }
-
-  const agentKeypair = loadAgentKeypair();
-  if (!agentKeypair) {
-    return NextResponse.json({ error: 'Agent wallet not configured' }, { status: 503 });
+  if (!parsedUsdcMint) {
+    return NextResponse.json({ error: 'USDC mint misconfigured' }, { status: 500 });
   }
 
   const body = await req.json().catch(() => null);
@@ -72,11 +126,87 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
   }
 
-  const listingId = typeof body.listingId === 'string' ? body.listingId.trim() : null;
-  const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : 'agent';
+  const reference = sanitizeString((body as any).reference, 64);
+  const listingId = sanitizeString((body as any).listingId, 64);
+  const agentId = sanitizeString((body as any).agentId, 64) || 'agent';
+  const buyerWallet = sanitizeString((body as any).buyerWallet, 64);
 
+  // Confirmation path: agent has paid, validate and deliver
+  if (reference && listingId) {
+    const listing = await getMarketplaceListingById(listingId);
+    if (!listing) {
+      return NextResponse.json({ error: 'Listing not found' }, { status: 404 });
+    }
+
+    if (
+      listing.status === 'active' ||
+      listing.status === 'awaiting_payment' ||
+      listing.status === 'sold'
+    ) {
+      // Check if already delivered
+      if (listing.status === 'active' && listing.purchase_signature) {
+        return NextResponse.json({ status: listing.status, listing });
+      }
+    }
+
+    if (listing.list_fee_reference !== reference && listing.purchase_reference !== reference) {
+      return NextResponse.json({ error: 'Reference mismatch' }, { status: 409 });
+    }
+
+    const connection = new Connection(SOLANA_ENDPOINT, 'confirmed');
+    const referenceKey = new PublicKey(reference);
+    try {
+      const { signature } = await findReference(connection, referenceKey, {
+        finality: 'confirmed',
+      });
+
+      await assertUsdcTransfer(
+        connection,
+        signature,
+        new PublicKey(PROJECT_WALLET),
+        PURCHASE_PRICE,
+        referenceKey
+      );
+
+      const rakeBps = listing.rake_bps ?? DEFAULT_RAKE_BPS;
+      const { rake, seller } = calculateRakeTotals(rakeBps);
+
+      const updated = await confirmMarketplacePurchase({
+        listingId: listing.id,
+        signature,
+        rakeAmount: rake.toFixed(6),
+        sellerAmount: seller.toFixed(6),
+        keepActive: true, // Keep listing active for multiple purchases
+        buyerAgentId: agentId,
+        buyerWallet: buyerWallet || listing.buyer_wallet || undefined,
+        purchaseReference: reference,
+      });
+
+      return NextResponse.json(
+        {
+          status: 'delivered',
+          content: updated?.content,
+          listing: updated,
+        },
+        {
+          headers: { 'Cache-Control': 'no-store' },
+        }
+      );
+    } catch (err) {
+      if (err instanceof FindReferenceError) {
+        return NextResponse.json({ status: 'pending' }, { status: 402 });
+      }
+      console.error('Marketplace purchase validation failed:', err);
+      return NextResponse.json({ error: 'Validation failed' }, { status: 422 });
+    }
+  }
+
+  // Initial request: return payment URL (402 Payment Required)
   if (!listingId) {
     return NextResponse.json({ error: 'listingId required' }, { status: 400 });
+  }
+  if (!buyerWallet) {
+    return NextResponse.json({ error: 'buyerWallet required' }, { status: 400 });
   }
 
   const listing = await getMarketplaceListingById(listingId);
@@ -91,118 +221,44 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const connection = new Connection(SOLANA_ENDPOINT, 'confirmed');
-  const projectWalletKey = new PublicKey(PROJECT_WALLET);
-  const agentWalletKey = agentKeypair.publicKey;
+  const purchaseReference = Keypair.generate().publicKey.toBase58();
+  const updated = await reserveMarketplaceListingForBuyer({
+    listingId: listing.id,
+    buyerAgentId: agentId,
+    buyerWallet,
+    purchaseReference,
+  });
 
-  try {
-    // Reserve the listing
-    const purchaseReference = Keypair.generate().publicKey.toBase58();
-    await reserveMarketplaceListingForBuyer({
-      listingId: listing.id,
-      buyerAgentId: agentId,
-      buyerWallet: agentWalletKey.toBase58(),
-      purchaseReference,
-    });
-
-    // Get token program ID
-    const tokenProgramId = await getTokenProgramId(connection, USDC_MINT);
-
-    // Ensure agent has USDC token account
-    const agentAta = await getAssociatedTokenAddress(USDC_MINT, agentWalletKey, undefined, tokenProgramId);
-    const agentAtaInfo = await connection.getAccountInfo(agentAta);
-    const agentAtaInstructions = [];
-    if (!agentAtaInfo) {
-      agentAtaInstructions.push(
-        createAssociatedTokenAccountInstruction(
-          agentWalletKey,
-          agentAta,
-          agentWalletKey,
-          USDC_MINT,
-          tokenProgramId
-        )
-      );
-    }
-
-    // Ensure project wallet has USDC token account
-    const projectAta = await getAssociatedTokenAddress(USDC_MINT, projectWalletKey, undefined, tokenProgramId);
-    const projectAtaInfo = await connection.getAccountInfo(projectAta);
-    const projectAtaInstructions = [];
-    if (!projectAtaInfo) {
-      projectAtaInstructions.push(
-        createAssociatedTokenAccountInstruction(
-          agentWalletKey, // Agent pays for creation
-          projectAta,
-          projectWalletKey,
-          USDC_MINT,
-          tokenProgramId
-        )
-      );
-    }
-
-    // Create transfer instruction
-    const amountMinor = PURCHASE_PRICE.multipliedBy(new BigNumber(10).pow(USDC_DECIMALS)).integerValue();
-    const referenceKey = new PublicKey(purchaseReference);
-    const transferIx = createTransferCheckedInstruction(
-      agentAta,
-      USDC_MINT,
-      projectAta,
-      agentWalletKey,
-      BigInt(amountMinor.toString()),
-      USDC_DECIMALS,
-      undefined,
-      tokenProgramId
-    );
-    transferIx.keys.push({ pubkey: referenceKey, isSigner: false, isWritable: false });
-
-    // Build and send transaction
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
-    const transaction = new Transaction({
-      feePayer: agentWalletKey,
-      blockhash,
-      lastValidBlockHeight,
-    });
-    transaction.add(...agentAtaInstructions, ...projectAtaInstructions, transferIx);
-    transaction.sign(agentKeypair);
-
-    const signature = await connection.sendRawTransaction(transaction.serialize(), {
-      skipPreflight: false,
-      maxRetries: 3,
-    });
-
-    // Wait for confirmation
-    await connection.confirmTransaction(signature, 'confirmed');
-
-    // Confirm purchase and get content
-    const DEFAULT_RAKE_BPS = 2000;
-    const rakeBps = listing.rake_bps ?? DEFAULT_RAKE_BPS;
-    const gross = PURCHASE_PRICE;
-    const rake = gross.multipliedBy(rakeBps).dividedBy(10_000);
-    const seller = gross.minus(rake);
-
-    const updated = await confirmMarketplacePurchase({
-      listingId: listing.id,
-      signature,
-      rakeAmount: rake.toFixed(6),
-      sellerAmount: seller.toFixed(6),
-      keepActive: true, // Keep listing active for multiple purchases
-      buyerAgentId: agentId,
-      buyerWallet: agentWalletKey.toBase58(),
-      purchaseReference: purchaseReference,
-    });
-
-    return NextResponse.json({
-      status: 'delivered',
-      content: updated?.content,
-      listing: updated,
-      signature,
-    });
-  } catch (error: any) {
-    console.error('Agent purchase failed:', error);
-    return NextResponse.json(
-      { error: error?.message || 'Purchase failed' },
-      { status: 500 }
-    );
+  if (!updated) {
+    return NextResponse.json({ error: 'Service unavailable' }, { status: 503 });
   }
-}
 
+  const paymentFields: any = {
+    recipient: new PublicKey(PROJECT_WALLET),
+    amount: PURCHASE_PRICE,
+    splToken: USDC_MINT,
+    tokenProgram: TOKEN_2022_PROGRAM_ID,
+    reference: new PublicKey(purchaseReference),
+    label: 'SolAI Marketplace Purchase',
+    message: `${listing.title} purchase`,
+    memo: listing.id,
+  };
+
+  const paymentUrl = encodeURL(paymentFields).toString();
+
+  return NextResponse.json(
+    {
+      listingId: listing.id,
+      reference: purchaseReference,
+      amount: PURCHASE_PRICE.toFixed(3),
+      paymentUrl,
+      phantomUrl: buildPhantomUrl(paymentUrl),
+    },
+    {
+      status: 402,
+      headers: {
+        'Cache-Control': 'no-store',
+      },
+    }
+  );
+}
