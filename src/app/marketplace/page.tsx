@@ -242,18 +242,29 @@ function MarketplaceContent() {
   const fetchListings = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/marketplace/list?status=active,awaiting_payment", {
+      // Only fetch active listings - awaiting_payment listings are user-specific
+      const res = await fetch("/api/marketplace/list?status=active", {
         cache: "no-store",
       });
       const data = await res.json();
-      setListings(data.listings ?? []);
+      
+      // If user has a wallet connected, also fetch their awaiting_payment listings
+      if (publicKey) {
+        const awaitingRes = await fetch(`/api/marketplace/list?status=awaiting_payment&buyerWallet=${publicKey.toBase58()}`, {
+          cache: "no-store",
+        });
+        const awaitingData = await awaitingRes.json();
+        setListings([...(data.listings ?? []), ...(awaitingData.listings ?? [])]);
+      } else {
+        setListings(data.listings ?? []);
+      }
     } catch (err) {
       console.error("Marketplace fetch failed:", err);
       setError("Unable to load marketplace listings");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [publicKey]);
 
   const fetchPurchasedListings = useCallback(async () => {
     if (!publicKey) return;

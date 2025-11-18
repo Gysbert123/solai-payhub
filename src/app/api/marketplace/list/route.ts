@@ -130,6 +130,7 @@ async function assertUsdcTransfer(
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const statusParam = searchParams.get('status');
+  const buyerWallet = searchParams.get('buyerWallet');
   const includeContent = searchParams.get('includeContent') === '1';
 
   const statuses = statusParam
@@ -139,6 +140,7 @@ export async function GET(req: NextRequest) {
 
   const allListings = await listMarketplaceListings({
     status: statuses,
+    buyerWallet: buyerWallet || undefined,
     limit: 50,
   });
 

@@ -372,16 +372,43 @@ export async function activateMarketplaceListing(
 
 export async function listMarketplaceListings(options?: {
   status?: Array<MarketplaceListingRow['status']>;
+  buyerWallet?: string;
   limit?: number;
 }) {
   if (!db) return [];
 
-  const { status, limit = 20 } = options ?? {};
+  const { status, buyerWallet, limit = 20 } = options ?? {};
   const baseQuery = db.select().from(marketplaceListings);
-  const filteredQuery =
-    status && status.length > 0
-      ? baseQuery.where(inArray(marketplaceListings.status, status))
-      : baseQuery;
+  
+  let filteredQuery = baseQuery;
+  
+  // If status includes 'awaiting_payment' and buyerWallet is provided, filter by wallet
+  // Otherwise, if status includes 'awaiting_payment' without buyerWallet, exclude them
+  if (status && status.length > 0) {
+    if (status.includes('awaiting_payment')) {
+      if (buyerWallet) {
+        // Only show awaiting_payment listings for this specific wallet
+        filteredQuery = baseQuery.where(
+          and(
+            inArray(marketplaceListings.status, status),
+            eq(marketplaceListings.buyer_wallet, buyerWallet)
+          )
+        );
+      } else {
+        // Exclude awaiting_payment listings if no wallet specified
+        const otherStatuses = status.filter(s => s !== 'awaiting_payment');
+        if (otherStatuses.length > 0) {
+          filteredQuery = baseQuery.where(inArray(marketplaceListings.status, otherStatuses));
+        } else {
+          // If only awaiting_payment was requested without wallet, return empty
+          return [];
+        }
+      }
+    } else {
+      filteredQuery = baseQuery.where(inArray(marketplaceListings.status, status));
+    }
+  }
+  
   const finalQuery = filteredQuery.orderBy(desc(marketplaceListings.created_at)).limit(limit);
 
   return await finalQuery;
@@ -568,6 +595,35 @@ export async function expireMarketplaceListings(referenceDate = new Date()) {
         isNotNull(marketplaceListings.expires_at),
         lt(marketplaceListings.expires_at, referenceDate),
         inArray(marketplaceListings.status, ['active', 'awaiting_payment'])
+      )
+    )
+    .returning({ id: marketplaceListings.id });
+
+  return result.length;
+}
+
+// Reset stale "awaiting_payment" listings back to "active" after 1 hour
+export async function resetStaleAwaitingPaymentListings() {
+  if (!db) return 0;
+
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+  const updateValues: Partial<typeof marketplaceListings.$inferSelect> = {
+    status: 'active',
+    buyer_agent_id: null,
+    buyer_wallet: null,
+    purchase_reference: null,
+  };
+
+  const result = await db
+    .update(marketplaceListings)
+    .set(updateValues)
+    .where(
+      and(
+        eq(marketplaceListings.status, 'awaiting_payment'),
+        // Reset if created more than 1 hour ago and no purchase signature
+        lt(marketplaceListings.created_at, oneHourAgo),
+        isNull(marketplaceListings.purchase_signature)
       )
     )
     .returning({ id: marketplaceListings.id });
