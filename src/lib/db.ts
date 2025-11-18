@@ -378,9 +378,6 @@ export async function listMarketplaceListings(options?: {
   if (!db) return [];
 
   const { status, buyerWallet, limit = 20 } = options ?? {};
-  const baseQuery = db.select().from(marketplaceListings);
-  
-  let filteredQuery = baseQuery;
   
   // If status includes 'awaiting_payment' and buyerWallet is provided, filter by wallet
   // Otherwise, if status includes 'awaiting_payment' without buyerWallet, exclude them
@@ -388,30 +385,48 @@ export async function listMarketplaceListings(options?: {
     if (status.includes('awaiting_payment')) {
       if (buyerWallet) {
         // Only show awaiting_payment listings for this specific wallet
-        filteredQuery = baseQuery.where(
-          and(
-            inArray(marketplaceListings.status, status),
-            eq(marketplaceListings.buyer_wallet, buyerWallet)
+        return await db
+          .select()
+          .from(marketplaceListings)
+          .where(
+            and(
+              inArray(marketplaceListings.status, status),
+              eq(marketplaceListings.buyer_wallet, buyerWallet)
+            )
           )
-        );
+          .orderBy(desc(marketplaceListings.created_at))
+          .limit(limit);
       } else {
         // Exclude awaiting_payment listings if no wallet specified
         const otherStatuses = status.filter(s => s !== 'awaiting_payment');
         if (otherStatuses.length > 0) {
-          filteredQuery = baseQuery.where(inArray(marketplaceListings.status, otherStatuses));
+          return await db
+            .select()
+            .from(marketplaceListings)
+            .where(inArray(marketplaceListings.status, otherStatuses))
+            .orderBy(desc(marketplaceListings.created_at))
+            .limit(limit);
         } else {
           // If only awaiting_payment was requested without wallet, return empty
           return [];
         }
       }
     } else {
-      filteredQuery = baseQuery.where(inArray(marketplaceListings.status, status));
+      return await db
+        .select()
+        .from(marketplaceListings)
+        .where(inArray(marketplaceListings.status, status))
+        .orderBy(desc(marketplaceListings.created_at))
+        .limit(limit);
     }
   }
   
-  const finalQuery = filteredQuery.orderBy(desc(marketplaceListings.created_at)).limit(limit);
-
-  return await finalQuery;
+  // No status filter - return all
+  return await db
+    .select()
+    .from(marketplaceListings)
+    .orderBy(desc(marketplaceListings.created_at))
+    .limit(limit);
 }
 
 export async function getPurchasedListingsByWallet(
