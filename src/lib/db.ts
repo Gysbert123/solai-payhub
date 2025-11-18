@@ -512,8 +512,8 @@ export async function confirmMarketplacePurchase(params: {
     // Clear buyer info so next buyer can purchase (but we keep it in purchase_history)
     buyer_agent_id: null,
     buyer_wallet: null,
-    purchase_reference: null,
-    purchase_signature: null, // Clear current purchase signature
+    // DON'T clear purchase_reference and purchase_signature - they're needed for lookup
+    // They'll be overwritten when the next buyer reserves the listing
   };
 
   await db

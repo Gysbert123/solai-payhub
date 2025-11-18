@@ -141,13 +141,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Purchase reference not found' }, { status: 404 });
     }
 
-    if (listing.status === 'sold') {
+    // If already sold/delivered, return the content
+    if (listing.status === 'sold' || (listing.status === 'active' && listing.purchase_signature)) {
       return NextResponse.json({ status: 'delivered', content: listing.content, listing });
     }
 
-    if (listing.status !== 'awaiting_payment') {
+    // Allow confirmation if status is 'awaiting_payment' or 'active' (for retries)
+    if (listing.status !== 'awaiting_payment' && listing.status !== 'active') {
       return NextResponse.json(
-        { status: listing.status, message: 'Listing not awaiting payment' },
+        { status: listing.status, message: 'Listing not available for confirmation' },
         { status: 409 }
       );
     }
