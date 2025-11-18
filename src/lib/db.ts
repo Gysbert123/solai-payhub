@@ -431,16 +431,30 @@ export async function createMarketplacePurchase(params: {
 }) {
   if (!db) return null;
 
-  return await db.insert(marketplacePurchases).values({
+  const insertValues: {
+    id: string;
+    listing_id: string;
+    buyer_wallet: string;
+    purchase_reference: string;
+    purchase_signature: string;
+    rake_amount_usdc: string;
+    seller_amount_usdc: string;
+    buyer_agent_id?: string;
+  } = {
     id: randomUUID(),
     listing_id: params.listingId,
-    buyer_agent_id: params.buyerAgentId,
     buyer_wallet: params.buyerWallet,
     purchase_reference: params.purchaseReference,
     purchase_signature: params.purchaseSignature,
     rake_amount_usdc: params.rakeAmount,
     seller_amount_usdc: params.sellerAmount,
-  });
+  };
+
+  if (params.buyerAgentId) {
+    insertValues.buyer_agent_id = params.buyerAgentId;
+  }
+
+  return await db.insert(marketplacePurchases).values(insertValues);
 }
 
 export async function reserveMarketplaceListingForBuyer(params: {
