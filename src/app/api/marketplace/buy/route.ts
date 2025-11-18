@@ -176,6 +176,10 @@ export async function POST(req: NextRequest) {
         signature,
         rakeAmount: rake.toFixed(6),
         sellerAmount: seller.toFixed(6),
+        keepActive: true, // Keep listing active for multiple purchases
+        buyerAgentId: listing.buyer_agent_id,
+        buyerWallet: listing.buyer_wallet ?? undefined,
+        purchaseReference: listing.purchase_reference ?? undefined,
       });
 
       return NextResponse.json(

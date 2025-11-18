@@ -63,4 +63,16 @@ export const marketplaceListings = pgTable('marketplace_listings', {
   delivery_payload: text('delivery_payload'),
 });
 
+export const marketplacePurchases = pgTable('marketplace_purchases', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  listing_id: varchar('listing_id', { length: 36 }).notNull(),
+  buyer_agent_id: varchar('buyer_agent_id', { length: 64 }),
+  buyer_wallet: varchar('buyer_wallet', { length: 64 }).notNull(),
+  purchase_reference: varchar('purchase_reference', { length: 64 }).notNull(),
+  purchase_signature: varchar('purchase_signature', { length: 120 }).notNull(),
+  rake_amount_usdc: numeric('rake_amount_usdc', { precision: 20, scale: 9 }),
+  seller_amount_usdc: numeric('seller_amount_usdc', { precision: 20, scale: 9 }),
+  purchased_at: timestamp('purchased_at', { withTimezone: true }).defaultNow(),
+});
+
 // FORCE REBUILD

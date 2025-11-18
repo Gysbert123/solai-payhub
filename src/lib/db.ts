@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { randomUUID } from 'crypto';
-import { positions, agentPayments, arbs, marketplaceListings } from './schema';
+import { positions, agentPayments, arbs, marketplaceListings, marketplacePurchases } from './schema';
 import { eq, and, isNull, isNotNull, sql, inArray, desc, lt } from 'drizzle-orm';
 
 function isValidDatabaseUrl(url?: string) {
@@ -396,17 +396,51 @@ export async function getPurchasedListingsByWallet(
     return [];
   }
 
-  return await db
+  // Get purchases from purchase history table
+  const purchases = await db
+    .select()
+    .from(marketplacePurchases)
+    .where(eq(marketplacePurchases.buyer_wallet, buyerWallet))
+    .orderBy(desc(marketplacePurchases.purchased_at))
+    .limit(limit);
+
+  // Get the actual listings
+  const listingIds = purchases.map(p => p.listing_id);
+  if (listingIds.length === 0) return [];
+
+  const listings = await db
     .select()
     .from(marketplaceListings)
-    .where(
-      and(
-        eq(marketplaceListings.buyer_wallet, buyerWallet),
-        eq(marketplaceListings.status, 'sold')
-      )
-    )
-    .orderBy(desc(marketplaceListings.sold_at))
-    .limit(limit);
+    .where(inArray(marketplaceListings.id, listingIds));
+
+  // Sort by purchase date
+  const listingMap = new Map(listings.map(l => [l.id, l]));
+  return purchases
+    .map(p => listingMap.get(p.listing_id))
+    .filter((l): l is MarketplaceListingRow => l !== undefined);
+}
+
+export async function createMarketplacePurchase(params: {
+  listingId: string;
+  buyerAgentId: string | null;
+  buyerWallet: string;
+  purchaseReference: string;
+  purchaseSignature: string;
+  rakeAmount: string;
+  sellerAmount: string;
+}) {
+  if (!db) return null;
+
+  return await db.insert(marketplacePurchases).values({
+    id: randomUUID(),
+    listing_id: params.listingId,
+    buyer_agent_id: params.buyerAgentId,
+    buyer_wallet: params.buyerWallet,
+    purchase_reference: params.purchaseReference,
+    purchase_signature: params.purchaseSignature,
+    rake_amount_usdc: params.rakeAmount,
+    seller_amount_usdc: params.sellerAmount,
+  });
 }
 
 export async function reserveMarketplaceListingForBuyer(params: {
@@ -437,15 +471,35 @@ export async function confirmMarketplacePurchase(params: {
   signature: string;
   rakeAmount: string;
   sellerAmount: string;
+  keepActive?: boolean; // If true, keep listing active for multiple purchases
+  buyerAgentId?: string | null;
+  buyerWallet?: string;
+  purchaseReference?: string;
 }) {
   if (!db) return null;
 
+  // Create purchase history record
+  const listing = await getMarketplaceListingById(params.listingId);
+  if (listing) {
+    await createMarketplacePurchase({
+      listingId: params.listingId,
+      buyerAgentId: params.buyerAgentId ?? listing.buyer_agent_id,
+      buyerWallet: params.buyerWallet ?? listing.buyer_wallet ?? '',
+      purchaseReference: params.purchaseReference ?? listing.purchase_reference ?? '',
+      purchaseSignature: params.signature,
+      rakeAmount: params.rakeAmount,
+      sellerAmount: params.sellerAmount,
+    });
+  }
+
   const updateValues: Partial<typeof marketplaceListings.$inferSelect> = {
-    status: 'sold',
-    purchase_signature: params.signature,
-    sold_at: new Date(),
-    rake_amount_usdc: params.rakeAmount,
-    seller_amount_usdc: params.sellerAmount,
+    // Keep listing active for multiple purchases, only mark as sold if keepActive is false
+    status: params.keepActive !== false ? 'active' : 'sold',
+    // Clear buyer info so next buyer can purchase (but we keep it in purchase_history)
+    buyer_agent_id: null,
+    buyer_wallet: null,
+    purchase_reference: null,
+    purchase_signature: null, // Clear current purchase signature
   };
 
   await db
