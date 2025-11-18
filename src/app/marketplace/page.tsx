@@ -420,7 +420,10 @@ function MarketplaceContent() {
         fetchListings();
         fetchPurchasedListings(); // Refresh purchased listings
       } else {
-        setPurchaseStatus(data.error || "Payment validation failed");
+        const errorMsg = data.error || "Payment validation failed";
+        const details = data.details ? `: ${data.details}` : "";
+        setPurchaseStatus(`${errorMsg}${details}`);
+        console.error("Purchase validation error:", data);
       }
       return data;
     } catch (err) {

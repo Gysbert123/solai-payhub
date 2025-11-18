@@ -199,7 +199,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ status: 'pending' }, { status: 402 });
       }
       console.error('Marketplace purchase validation failed:', err);
-      return NextResponse.json({ error: 'Validation failed' }, { status: 422 });
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      return NextResponse.json({ 
+        error: 'Validation failed',
+        details: errorMessage 
+      }, { status: 422 });
     }
   }
 
