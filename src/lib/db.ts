@@ -431,6 +431,10 @@ export async function createMarketplacePurchase(params: {
 }) {
   if (!db) return null;
 
+  // Try to create the purchase record, but don't fail if table doesn't exist yet
+  // The migration will be run separately
+  try {
+
   const insertValues: {
     id: string;
     listing_id: string;
@@ -454,7 +458,15 @@ export async function createMarketplacePurchase(params: {
     insertValues.buyer_agent_id = params.buyerAgentId;
   }
 
-  return await db.insert(marketplacePurchases).values(insertValues);
+    return await db.insert(marketplacePurchases).values(insertValues);
+  } catch (err: any) {
+    // If table doesn't exist, log but don't fail - migration needs to be run
+    if (err?.message?.includes('does not exist') || err?.message?.includes('relation')) {
+      console.warn('marketplace_purchases table does not exist. Please run migration 0003_create_marketplace_purchases.sql');
+      return null;
+    }
+    throw err;
+  }
 }
 
 export async function reserveMarketplaceListingForBuyer(params: {

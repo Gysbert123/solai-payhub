@@ -763,8 +763,8 @@ function MarketplaceContent() {
                       <p className="text-sm text-gray-200">{listing.summary}</p>
                       <button
                         onClick={() => initiatePurchase(listing.id)}
-                        className="bg-green-500 hover:bg-green-600 px-4 py-1 rounded-full text-xs font-semibold"
-                        disabled={listing.status !== "active"}
+                        className="bg-green-500 hover:bg-green-600 px-4 py-1 rounded-full text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={listing.status !== "active" || !buyerForm.wallet}
                       >
                         Buy with USDC
                       </button>
