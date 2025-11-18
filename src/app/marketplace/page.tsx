@@ -356,7 +356,10 @@ function MarketplaceContent() {
         setPendingListingPayment(null);
         fetchListings();
       } else {
-        setListingStatus(data.error || "Payment validation failed");
+        const errorMsg = data.error || "Payment validation failed";
+        const details = data.details ? `: ${data.details}` : "";
+        setListingStatus(`${errorMsg}${details}`);
+        console.error("Listing validation error:", data);
       }
       return data;
     } catch (err) {
@@ -433,7 +436,8 @@ function MarketplaceContent() {
       } else {
         const errorMsg = data.error || "Payment validation failed";
         const details = data.details ? `: ${data.details}` : "";
-        setPurchaseStatus(`${errorMsg}${details}`);
+        const statusInfo = data.status ? ` (status: ${data.status})` : "";
+        setPurchaseStatus(`${errorMsg}${details}${statusInfo}`);
         console.error("Purchase validation error:", data);
       }
       return data;

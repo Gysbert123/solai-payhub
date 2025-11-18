@@ -223,8 +223,9 @@ export async function POST(req: NextRequest) {
   }
 
   if (listing.status !== 'active') {
+    console.log('Purchase blocked - listing status:', listing.status, 'listingId:', listing.id);
     return NextResponse.json(
-      { error: 'Listing not available', status: listing.status },
+      { error: 'Listing not available', status: listing.status, listingId: listing.id },
       { status: 409 }
     );
   }
