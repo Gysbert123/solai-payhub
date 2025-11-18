@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/marketplace-expire",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/sweep",
+      "schedule": "0 2 * * *"
     }
   ]
 }
