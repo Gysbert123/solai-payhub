@@ -168,34 +168,48 @@ export default function WhaleAlertsPaywall() {
 
       // Fetch blockhash through RPC proxy to avoid connection object type errors
       setStatus("Fetching latest blockhash…");
-      const rpcResponse = await fetch("/api/rpc", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getLatestBlockhash",
-          params: [],
-        }),
-      });
+      let blockhash: string;
+      let lastValidBlockHeight: number;
       
-      if (!rpcResponse.ok) {
-        throw new Error(`RPC request failed: ${rpcResponse.status}`);
+      try {
+        const rpcResponse = await fetch("/api/rpc", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "getLatestBlockhash",
+            params: [],
+          }),
+        });
+        
+        if (!rpcResponse.ok) {
+          throw new Error(`RPC request failed: ${rpcResponse.status}`);
+        }
+        
+        const rpcData = await rpcResponse.json();
+        if (rpcData.error) {
+          const errorMsg = rpcData.error.message || "Failed to get blockhash";
+          // Check for rate limit errors
+          if (errorMsg.includes("max usage") || errorMsg.includes("rate limit") || errorMsg.includes("429")) {
+            throw new Error("RPC rate limit reached. Please use the 'Open in Wallet' button instead, or try again in a few minutes.");
+          }
+          throw new Error(errorMsg);
+        }
+        
+        blockhash = rpcData.result.value.blockhash;
+        lastValidBlockHeight = rpcData.result.value.lastValidBlockHeight;
+      } catch (rpcErr: any) {
+        // If RPC fails, suggest using the wallet link instead
+        const errorMsg = rpcErr?.message || "RPC request failed";
+        setError(`${errorMsg}. Tip: Use the 'Open in Wallet' button above - it doesn't require RPC calls and works even with free tier limits.`);
+        setStatus("");
+        return;
       }
-      
-      const rpcData = await rpcResponse.json();
-      if (rpcData.error) {
-        throw new Error(rpcData.error.message || "Failed to get blockhash from RPC");
-      }
-      
-      const blockhash = rpcData.result.value.blockhash;
-      const lastValidBlockHeight = rpcData.result.value.lastValidBlockHeight;
 
       // Build transaction with blockhash from RPC proxy
       const transaction = new Transaction({
-        recentBlockhash: blockhash,
         feePayer: publicKey,
-        lastValidBlockHeight,
       }).add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
@@ -203,6 +217,8 @@ export default function WhaleAlertsPaywall() {
           lamports,
         })
       );
+      transaction.recentBlockhash = blockhash;
+      transaction.lastValidBlockHeight = lastValidBlockHeight;
       transaction.instructions[0].keys.push({
         pubkey: referenceKey,
         isSigner: false,
