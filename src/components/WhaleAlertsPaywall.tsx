@@ -165,8 +165,13 @@ export default function WhaleAlertsPaywall() {
         .integerValue(BigNumber.ROUND_FLOOR)
         .toNumber();
 
-      // Use exact same pattern as marketplace which works perfectly
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized");
+      // Fetch blockhash from backend endpoint to avoid connection object type errors
+      // This uses the server-side Helius RPC which handles response format correctly
+      const blockhashRes = await fetch("/api/blockhash");
+      if (!blockhashRes.ok) {
+        throw new Error("Failed to get blockhash from server");
+      }
+      const { blockhash, lastValidBlockHeight } = await blockhashRes.json();
       const transaction = new Transaction({
         feePayer: publicKey,
         blockhash,
