@@ -480,6 +480,12 @@ function AppContent() {
         >
           Try the Grok Gateway
         </Link>
+        <Link
+          href="/whale-alerts"
+          className="inline-flex items-center rounded-full border border-emerald-300/40 bg-emerald-400/10 px-6 py-3 font-semibold text-emerald-200 transition hover:bg-emerald-400/20"
+        >
+          🐋 Whale Alerts
+        </Link>
         <span className="text-gray-400 text-center">
           List insights for 0.001&nbsp;USDC · Sell data for 0.005&nbsp;USDC · Bill agents 0.0015&nbsp;SOL per Grok prompt
         </span>

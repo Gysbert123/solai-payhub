@@ -8,6 +8,10 @@ import {
 import { createJupiterApiClient } from '@jup-ag/api';
 import bs58 from 'bs58';
 
+// Prevent static generation - this route must be dynamic
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const BIRDEYE_PRICE_API = 'https://public-api.birdeye.so/public/price?address=';
 const SLIPPAGE_BPS = 50;

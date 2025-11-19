@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { recordArbs } from '@/lib/db';
 
+// Prevent static generation - this route must be dynamic
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 const TOKENS = [
   {
     mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',

@@ -1,11 +1,17 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo } from "react";
 import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { clusterApiUrl } from "@solana/web3.js";
 import "@solana/wallet-adapter-react-ui/styles.css";
 import WhaleAlertsPaywall from "@/components/WhaleAlertsPaywall";
+
+const WalletMultiButtonDynamic = dynamic(
+  async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
+  { ssr: false }
+);
 
 function resolveEndpoint(customUrl: string | undefined, fallback: string) {
   if (!customUrl) return fallback;
@@ -46,6 +52,19 @@ export default function WhaleAlertsPage() {
                   Monitor every $1,000+ buy & sell on Solana mainnet in real time. Unlock the feed with SOL using your existing PayHub wallet
                   experience.
                 </p>
+              </div>
+              <div className="flex justify-center mb-8">
+                <WalletMultiButtonDynamic
+                  style={{
+                    background: "linear-gradient(to right, #06b6d4, #4f46e5)",
+                    borderRadius: "9999px",
+                    padding: "12px 32px",
+                    fontWeight: "bold",
+                    fontSize: "16px",
+                    boxShadow: "0 10px 20px rgba(6, 182, 212, 0.3)",
+                  }}
+                  className="hover:scale-105"
+                />
               </div>
               <WhaleAlertsPaywall />
             </div>

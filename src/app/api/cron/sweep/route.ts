@@ -17,6 +17,10 @@ import bs58 from 'bs58';
 import { recordSweepLog } from '@/lib/db';
 import { sendSweepNotification } from '@/lib/telegram';
 
+// Prevent static generation - this route must be dynamic
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 const KEEP_SOL = Number(process.env.SWEEP_KEEP_SOL ?? '0.2');
 const KEEP_USDC = Number(process.env.SWEEP_KEEP_USDC ?? '20');
 const MIN_SOL_SWEEP = Number(process.env.SWEEP_MIN_SOL ?? '0.01');

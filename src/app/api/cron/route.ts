@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { getOpenTrades, markTradeAsSold } from '@/lib/db';
 import { Connection } from '@solana/web3.js';
 
+// Prevent static generation - this route must be dynamic
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 const JUPITER_PRICE_API = 'https://price.jup.ag/v4/price?ids=';
 
 function createSolanaConnection(): Connection | null {

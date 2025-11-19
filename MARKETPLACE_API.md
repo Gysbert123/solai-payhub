@@ -561,6 +561,159 @@ GET /api/whale-alerts?wallet=YourWallet&min_usd=1000&limit=50
 
 After paying, call `GET /api/whale-alerts?...&reference=<same-reference>` to grant access (1 hour or 30 days).
 
+### For AI Agents
+
+The Whale Alerts API uses the **HTTP 402 Payment Required** pattern, making it fully compatible with autonomous AI agents. Agents can programmatically request whale alerts, receive payment invoices, complete payments, and access real-time data.
+
+#### Agent Flow
+
+1. **Request whale alerts** (returns 402 if not paid):
+   ```http
+   GET /api/whale-alerts?wallet=AGENT_WALLET_ADDRESS&min_usd=1000&limit=50
+   ```
+
+2. **Receive payment invoice** (402 response):
+   ```json
+   {
+     "feature": "whale-alerts",
+     "message": "Payment required",
+     "plans": [
+       {
+         "tier": "hourly",
+         "label": "1 Hour Pass",
+         "amount": "0.0005",
+         "durationSeconds": 3600,
+         "reference": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+         "paymentUrl": "solana:https://solai-payhub.vercel.app/api/whale-alerts?reference=7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU&amount=0.0005&label=Whale%20Alerts",
+         "phantomUrl": "https://phantom.app/ul/v1/pay?link=..."
+       },
+       {
+         "tier": "monthly",
+         "label": "30-Day Pass",
+         "amount": "0.01",
+         "durationSeconds": 2592000,
+         "reference": "9yLYuh3DX98e98UYKJTEqcE6kifUrB94UAZSvKptBhBv",
+         "paymentUrl": "solana:https://...",
+         "phantomUrl": "https://phantom.app/ul/v1/pay?link=..."
+       }
+     ]
+   }
+   ```
+
+3. **Complete payment** using the `paymentUrl` (Solana Pay link). Agents can:
+   - Use `@solana/pay` library to parse and execute the payment
+   - Send SOL transfer with the reference key included
+   - Use any Solana wallet adapter or SDK
+
+4. **Confirm payment and receive alerts**:
+   ```http
+   GET /api/whale-alerts?wallet=AGENT_WALLET_ADDRESS&reference=7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU&min_usd=1000&limit=50
+   ```
+   
+   Response (200):
+   ```json
+   {
+     "paid": true,
+     "tier": "hourly",
+     "expiresInMs": 3600000,
+     "alerts": [
+       {
+         "id": "sig-abc123-wallet-xyz-buy",
+         "signature": "5j7s8K9...",
+         "timestamp": 1703123456789,
+         "wallet": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+         "direction": "buy",
+         "tokenSymbol": "BONK",
+         "tokenMint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+         "tokenAmount": 1000000,
+         "usdValue": 2500.50,
+         "priceUsd": 0.0000025,
+         "source": "SWAP"
+       }
+     ]
+   }
+   ```
+
+#### Agent Implementation Example (TypeScript)
+
+```typescript
+import { Connection, PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { findReference, FindReferenceError } from '@solana/pay';
+import BigNumber from 'bignumber.js';
+
+async function getWhaleAlerts(agentWallet: string, connection: Connection) {
+  // Step 1: Request alerts
+  const response = await fetch(
+    `https://solai-payhub.vercel.app/api/whale-alerts?wallet=${agentWallet}&min_usd=1000&limit=50`
+  );
+
+  if (response.status === 200) {
+    // Already paid, return alerts
+    return await response.json();
+  }
+
+  if (response.status !== 402) {
+    throw new Error(`Unexpected status: ${response.status}`);
+  }
+
+  // Step 2: Get payment invoice
+  const invoice = await response.json();
+  const plan = invoice.plans[0]; // Choose hourly or monthly
+
+  // Step 3: Pay using Solana Pay URL or direct transaction
+  const referenceKey = new PublicKey(plan.reference);
+  const amountLamports = new BigNumber(plan.amount)
+    .multipliedBy(LAMPORTS_PER_SOL)
+    .integerValue()
+    .toNumber();
+
+  // Build and send payment transaction
+  const transaction = new Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: new PublicKey(agentWallet),
+      toPubkey: new PublicKey('PROJECT_WALLET_ADDRESS'),
+      lamports: amountLamports,
+    })
+  );
+  transaction.instructions[0].keys.push({
+    pubkey: referenceKey,
+    isSigner: false,
+    isWritable: false,
+  });
+
+  // Sign and send transaction (using your wallet/keypair)
+  const signature = await connection.sendTransaction(transaction, [keypair]);
+
+  // Step 4: Wait for confirmation and grant access
+  for (let i = 0; i < 30; i++) {
+    try {
+      await findReference(connection, referenceKey, { finality: 'confirmed' });
+      // Payment confirmed, fetch alerts
+      const alertsResponse = await fetch(
+        `https://solai-payhub.vercel.app/api/whale-alerts?wallet=${agentWallet}&reference=${plan.reference}&min_usd=1000&limit=50`
+      );
+      return await alertsResponse.json();
+    } catch (err) {
+      if (err instanceof FindReferenceError) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw new Error('Payment confirmation timeout');
+}
+```
+
+#### Agent Best Practices
+
+- **Polling**: After payment, poll with the `reference` parameter until you receive a 200 response
+- **Access duration**: Hourly passes last 1 hour, monthly passes last 30 days
+- **Rate limiting**: No explicit rate limits, but respect reasonable polling intervals (15-30 seconds)
+- **Error handling**: Handle 402 (payment required), 422 (validation failed), and network errors gracefully
+- **Wallet management**: Use a dedicated wallet for agent payments to track costs
+
 ### Whale Alerts Environment Variables
 
 | Key | Description |
