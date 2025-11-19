@@ -184,7 +184,7 @@ export default function WhaleAlertsPaywall() {
         throw new Error("sendTransaction not available");
       }
       const signature = await sendTransaction(transaction, connection);
-      const sigStr = typeof signature === "string" ? signature : bs58.encode(signature);
+      const sigStr = signature; // sendTransaction returns a string
       
       setStatus(`Transaction ${sigStr} submitted. Waiting for confirmation…`);
 
