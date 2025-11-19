@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import BigNumber from "bignumber.js";
+import bs58 from "bs58";
 import { WhaleAlert } from "@/lib/whale";
 
 type WhalePlanOption = {
@@ -165,8 +166,37 @@ export default function WhaleAlertsPaywall() {
         .integerValue(BigNumber.ROUND_FLOOR)
         .toNumber();
 
-      // Build transaction without blockhash - sendTransaction will handle it automatically
-      const transaction = new Transaction().add(
+      // Fetch blockhash through RPC proxy to avoid connection object type errors
+      setStatus("Fetching latest blockhash…");
+      const rpcResponse = await fetch("/api/rpc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getLatestBlockhash",
+          params: [],
+        }),
+      });
+      
+      if (!rpcResponse.ok) {
+        throw new Error(`RPC request failed: ${rpcResponse.status}`);
+      }
+      
+      const rpcData = await rpcResponse.json();
+      if (rpcData.error) {
+        throw new Error(rpcData.error.message || "Failed to get blockhash from RPC");
+      }
+      
+      const blockhash = rpcData.result.value.blockhash;
+      const lastValidBlockHeight = rpcData.result.value.lastValidBlockHeight;
+
+      // Build transaction with blockhash from RPC proxy
+      const transaction = new Transaction({
+        recentBlockhash: blockhash,
+        feePayer: publicKey,
+        lastValidBlockHeight,
+      }).add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
           toPubkey: new PublicKey(PROJECT_WALLET),
@@ -179,12 +209,14 @@ export default function WhaleAlertsPaywall() {
         isWritable: false,
       });
 
-      // Use sendTransaction which handles blockhash automatically
-      if (!sendTransaction) {
-        throw new Error("sendTransaction not available");
-      }
-      const signature = await sendTransaction(transaction, connection);
-      const sigStr = signature; // sendTransaction returns a string
+      // Sign and send transaction
+      const signedTx = await signTransaction(transaction);
+      const serializedTx = signedTx.serialize();
+      const signature = await connection.sendRawTransaction(serializedTx, {
+        skipPreflight: true,
+        maxRetries: 3,
+      });
+      const sigStr = typeof signature === "string" ? signature : bs58.encode(signature);
       
       setStatus(`Transaction ${sigStr} submitted. Waiting for confirmation…`);
 
