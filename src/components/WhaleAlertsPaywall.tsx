@@ -166,7 +166,23 @@ export default function WhaleAlertsPaywall() {
         .integerValue(BigNumber.ROUND_FLOOR)
         .toNumber();
 
-      const { blockhash } = await connection.getLatestBlockhash();
+      // Fetch blockhash through RPC proxy API to avoid connection object issues
+      const rpcResponse = await fetch("/api/rpc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getLatestBlockhash",
+          params: [],
+        }),
+      });
+      const rpcData = await rpcResponse.json();
+      if (rpcData.error) {
+        throw new Error(rpcData.error.message || "Failed to get blockhash from RPC");
+      }
+      const blockhash = rpcData.result.value.blockhash;
+
       const transaction = new Transaction({
         recentBlockhash: blockhash,
         feePayer: publicKey,
