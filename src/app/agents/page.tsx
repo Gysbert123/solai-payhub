@@ -1,7 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
+import {
+  ConnectionProvider,
+  WalletProvider,
+} from "@solana/wallet-adapter-react";
+import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
+import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import {
+  clusterApiUrl,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+} from "@solana/web3.js";
+import "@solana/wallet-adapter-react-ui/styles.css";
+import BigNumber from "bignumber.js";
+import { ConnectWalletButton } from "@/components/ConnectWalletButton";
 
 type InvoiceResponse = {
   requestId?: string;
@@ -24,7 +40,7 @@ type GatewayDelivery = {
   };
 };
 
-export default function AgentsGatewayPage() {
+function AgentsGatewayContent() {
   const [prompt, setPrompt] = useState("");
   const [agentId, setAgentId] = useState("agent-001");
   const [agentWallet, setAgentWallet] = useState("");
@@ -35,6 +51,10 @@ export default function AgentsGatewayPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(false);
+  const [walletPaying, setWalletPaying] = useState(false);
+
+  const { publicKey, sendTransaction } = useWallet();
+  const { connection } = useConnection();
 
   const sanitizedAgentId = agentId.trim() || "anonymous";
 
@@ -119,6 +139,80 @@ export default function AgentsGatewayPage() {
       setErrorMessage(err.message || "Network error while checking status.");
     } finally {
       setCheckingStatus(false);
+    }
+  };
+
+  const waitForBackendConfirmation = async (signature: string) => {
+    for (let i = 0; i < 60; i++) {
+      const res = await fetch(`/api/confirm?sig=${signature}`);
+      const data = await res.json();
+      if (data.confirmed) {
+        if (data.err) {
+          throw new Error(`Transaction failed: ${JSON.stringify(data.err)}`);
+        }
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw new Error("Confirmation timeout - check Solscan for status.");
+  };
+
+  const handlePayWithWallet = async () => {
+    if (!invoice) {
+      setErrorMessage("Create an invoice first.");
+      return;
+    }
+    if (!publicKey || !sendTransaction) {
+      setErrorMessage("Connect a wallet to pay.");
+      return;
+    }
+
+    try {
+      setWalletPaying(true);
+      setStatusMessage("Preparing transaction...");
+      setErrorMessage(null);
+
+      const recipientKey = new PublicKey(invoice.recipient);
+      const referenceKey = new PublicKey(invoice.reference);
+
+      const lamports = new BigNumber(invoice.amount)
+        .multipliedBy(LAMPORTS_PER_SOL)
+        .integerValue(BigNumber.ROUND_FLOOR)
+        .toNumber();
+      if (lamports <= 0) {
+        throw new Error("Invalid invoice amount");
+      }
+
+      const transferIx = SystemProgram.transfer({
+        fromPubkey: publicKey,
+        toPubkey: recipientKey,
+        lamports,
+      });
+      transferIx.keys.push({
+        pubkey: referenceKey,
+        isSigner: false,
+        isWritable: false,
+      });
+
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized");
+      const transaction = new Transaction({
+        feePayer: publicKey,
+        blockhash,
+        lastValidBlockHeight,
+      }).add(transferIx);
+
+      const signature = await sendTransaction(transaction, connection);
+      setStatusMessage(`Transaction sent (${signature}). Awaiting confirmation...`);
+
+      await waitForBackendConfirmation(signature);
+      setStatusMessage("Payment confirmed. Fetching Grok response...");
+
+      await handleCheckStatus();
+    } catch (err: any) {
+      console.error("Connected-wallet payment failed:", err);
+      setErrorMessage(err?.message || "Connected wallet payment failed.");
+    } finally {
+      setWalletPaying(false);
     }
   };
 
@@ -258,6 +352,22 @@ export default function AgentsGatewayPage() {
               (Phantom &rarr; “Send” &rarr; “Pay with URL”) or use your own agent tooling. The API still returns the
               full payment and Phantom links for automated agents.
             </p>
+            <div className="mt-6 space-y-3 rounded-xl border border-white/10 bg-black/30 p-4">
+              <p className="text-sm uppercase tracking-wide text-white/60">Pay with connected wallet</p>
+              {!publicKey && (
+                <p className="text-xs text-yellow-200">
+                  Connect a wallet below to send {invoice.amount}&nbsp;SOL directly from your browser.
+                </p>
+              )}
+              <button
+                onClick={handlePayWithWallet}
+                disabled={!publicKey || walletPaying}
+                className="w-full rounded-full bg-gradient-to-r from-green-500 to-emerald-600 px-4 py-3 text-sm font-semibold uppercase tracking-wide text-white transition hover:from-green-600 hover:to-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {walletPaying ? "Sending payment..." : publicKey ? "Pay with connected wallet" : "Connect wallet to pay"}
+              </button>
+              <ConnectWalletButton />
+            </div>
           </section>
         )}
 
@@ -345,6 +455,47 @@ export default function AgentsGatewayPage() {
         </footer>
       </div>
     </main>
+  );
+}
+
+export default function AgentsGatewayPage() {
+  const network = process.env.NEXT_PUBLIC_SOLANA_CLUSTER === "devnet" ? "devnet" : "mainnet-beta";
+  const fallbackEndpoint = useMemo(() => clusterApiUrl(network), [network]);
+  const customRpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim();
+
+  const resolveEndpoint = (url: string | undefined, fallback: string) => {
+    if (!url) return fallback;
+    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    if (typeof window !== "undefined" && url.startsWith("/")) {
+      return new URL(url, window.location.origin).toString();
+    }
+    return fallback;
+  };
+
+  const endpoint = useMemo(
+    () => resolveEndpoint(customRpc, fallbackEndpoint),
+    [customRpc, fallbackEndpoint]
+  );
+
+  const connectionConfig = useMemo(
+    () => ({
+      commitment: "confirmed" as const,
+      disableWs: true,
+      confirmTransactionInitialTimeout: 30_000,
+    }),
+    []
+  );
+
+  const wallets = useMemo(() => [], []);
+
+  return (
+    <ConnectionProvider endpoint={endpoint} config={connectionConfig}>
+      <WalletProvider wallets={wallets} autoConnect>
+        <WalletModalProvider>
+          <AgentsGatewayContent />
+        </WalletModalProvider>
+      </WalletProvider>
+    </ConnectionProvider>
   );
 }
 
