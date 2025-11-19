@@ -97,7 +97,8 @@ function AgentsGatewayContent() {
         setDelivery(data as GatewayDelivery);
         setStatusMessage("Payment already confirmed; Grok response delivered.");
       } else {
-        setErrorMessage(data.error || "Failed to create invoice.");
+        const details = data.details ? ` (${data.details})` : "";
+        setErrorMessage((data.error || "Failed to create invoice") + details);
       }
     } catch (err: any) {
       setErrorMessage(err.message || "Network error while creating invoice.");
@@ -133,7 +134,8 @@ function AgentsGatewayContent() {
       } else if (res.status === 402) {
         setStatusMessage("Payment pending. Wait a few seconds and try again.");
       } else {
-        setErrorMessage(data.error || "Failed to check status.");
+        const details = data.details ? ` (${data.details})` : "";
+        setErrorMessage((data.error || "Failed to check status") + details);
       }
     } catch (err: any) {
       setErrorMessage(err.message || "Network error while checking status.");

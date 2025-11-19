@@ -310,7 +310,13 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ status: 'pending' }, { status: 402 });
       }
       console.error('Grok gateway payment validation failed:', err);
-      return NextResponse.json({ error: 'Validation failed' }, { status: 422 });
+      return NextResponse.json(
+        {
+          error: 'Validation failed',
+          details: err instanceof Error ? err.message : String(err),
+        },
+        { status: 422 }
+      );
     }
   }
 
