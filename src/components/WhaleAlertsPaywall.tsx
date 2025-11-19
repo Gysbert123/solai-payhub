@@ -166,7 +166,22 @@ export default function WhaleAlertsPaywall() {
         .integerValue(BigNumber.ROUND_FLOOR)
         .toNumber();
 
-      const transaction = new Transaction().add(
+      let blockhash: string;
+      let lastValidBlockHeight: number;
+      try {
+        const blockhashResult = await connection.getLatestBlockhash("confirmed");
+        blockhash = blockhashResult.blockhash;
+        lastValidBlockHeight = blockhashResult.lastValidBlockHeight;
+      } catch (blockhashErr: any) {
+        console.error("getLatestBlockhash error:", blockhashErr);
+        throw new Error(`Failed to get blockhash: ${blockhashErr?.message || String(blockhashErr)}`);
+      }
+
+      const transaction = new Transaction({
+        feePayer: publicKey,
+        blockhash,
+        lastValidBlockHeight,
+      }).add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
           toPubkey: new PublicKey(PROJECT_WALLET),
@@ -178,11 +193,6 @@ export default function WhaleAlertsPaywall() {
         isSigner: false,
         isWritable: false,
       });
-
-      const { blockhash, lastValidBlockHeight } =
-        await connection.getLatestBlockhash("finalized");
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
 
       const signature = await sendTransaction(transaction, connection);
       setStatus(`Transaction ${signature} submitted. Waiting for confirmation…`);
