@@ -12,12 +12,16 @@ import {
 const PROJECT_WALLET = process.env.NEXT_PUBLIC_PROJECT_WALLET;
 const GROK_API_KEY = process.env.GROK_API_KEY;
 const SOLANA_ENDPOINT = process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
-const PAYMENT_AMOUNT = new BigNumber(0.0015); // 0.0015 SOL per request
-const DEFAULT_RAKE_PERCENTAGE = 60; // 60% rake
+const DEFAULT_RAKE_PERCENTAGE = Number(process.env.GROK_RAKE_PERCENTAGE ?? '60');
 
-// Grok API pricing (approximate, adjust based on actual costs)
-const GROK_INPUT_COST_PER_1K_TOKENS = 0.0005; // $0.0005 per 1K input tokens
-const GROK_OUTPUT_COST_PER_1K_TOKENS = 0.015; // $0.015 per 1K output tokens
+// Dynamic pricing config (based on xAI posted rates)
+const INPUT_RATE_PER_MTOK_USD = Number(process.env.GROK_INPUT_RATE_PER_MTOK_USD ?? '5'); // $5 / 1M prompt tokens
+const OUTPUT_RATE_PER_MTOK_USD = Number(process.env.GROK_OUTPUT_RATE_PER_MTOK_USD ?? '15'); // $15 / 1M completion tokens
+const SOL_PRICE_USD = Number(process.env.GROK_SOL_PRICE_USD ?? '150');
+const OUTPUT_TOKEN_RATIO = Number(process.env.GROK_EXPECTED_OUTPUT_RATIO ?? '0.6'); // expected completion tokens relative to prompt tokens
+const MIN_PRICE_SOL = Number(process.env.GROK_MIN_PRICE_SOL ?? '0.0005');
+const MAX_PRICE_SOL = Number(process.env.GROK_MAX_PRICE_SOL ?? '0.01');
+const PRICE_RAKE_MULTIPLIER = Number(process.env.GROK_PRICE_RAKE_MULTIPLIER ?? '1.6'); // 60% margin default
 
 function sanitizeString(value: unknown, maxLength: number) {
   if (typeof value !== 'string') return '';
@@ -26,6 +30,29 @@ function sanitizeString(value: unknown, maxLength: number) {
 
 function buildPhantomUrl(paymentUrl: string) {
   return `https://phantom.app/ul/v1/pay?link=${encodeURIComponent(paymentUrl)}`;
+}
+
+function estimateTokenCount(text: string) {
+  if (!text) return 1;
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function calculateDynamicPrice(prompt: string) {
+  const promptTokens = estimateTokenCount(prompt);
+  const expectedOutputTokens = Math.max(1, Math.ceil(promptTokens * OUTPUT_TOKEN_RATIO));
+
+  const inputCostUsd = (promptTokens / 1_000_000) * INPUT_RATE_PER_MTOK_USD;
+  const outputCostUsd = (expectedOutputTokens / 1_000_000) * OUTPUT_RATE_PER_MTOK_USD;
+  const baseUsd = (inputCostUsd + outputCostUsd) * PRICE_RAKE_MULTIPLIER;
+
+  let solAmount = baseUsd / SOL_PRICE_USD;
+  if (!Number.isFinite(solAmount) || solAmount <= 0) {
+    solAmount = MIN_PRICE_SOL;
+  }
+
+  solAmount = Math.min(MAX_PRICE_SOL, Math.max(MIN_PRICE_SOL, solAmount));
+
+  return new BigNumber(solAmount).decimalPlaces(9, BigNumber.ROUND_UP);
 }
 
 async function assertSystemTransfer(
@@ -161,9 +188,9 @@ async function callGrokAPI(prompt: string): Promise<{
   const inputTokens = usage.prompt_tokens || 0;
   const outputTokens = usage.completion_tokens || 0;
 
-  // Calculate cost
-  const inputCost = (inputTokens / 1000) * GROK_INPUT_COST_PER_1K_TOKENS;
-  const outputCost = (outputTokens / 1000) * GROK_OUTPUT_COST_PER_1K_TOKENS;
+  // Calculate cost based on xAI published rates
+  const inputCost = (inputTokens / 1_000_000) * INPUT_RATE_PER_MTOK_USD;
+  const outputCost = (outputTokens / 1_000_000) * OUTPUT_RATE_PER_MTOK_USD;
   const totalCost = inputCost + outputCost;
 
   return {
@@ -247,11 +274,14 @@ export async function POST(req: NextRequest) {
       });
 
       const recipientKey = new PublicKey(PROJECT_WALLET);
+      const expectedAmount = new BigNumber(
+        request.payment_amount_sol ?? MIN_PRICE_SOL.toString()
+      );
       await assertSystemTransfer(
         connection,
         signature,
         recipientKey,
-        PAYMENT_AMOUNT,
+        expectedAmount,
         referenceKey
       );
 
@@ -260,14 +290,15 @@ export async function POST(req: NextRequest) {
       const jupiterRec = generateJupiterRecommendation(grokResult.response);
 
       // Calculate rake (for logging)
-      const paymentAmountUsd = PAYMENT_AMOUNT.multipliedBy(150); // Approximate SOL price ~$150
-      const rakeAmount = paymentAmountUsd.multipliedBy(DEFAULT_RAKE_PERCENTAGE).dividedBy(100);
+      const paymentAmountUsd = expectedAmount.multipliedBy(SOL_PRICE_USD);
+      const rakePercent = request.rake_percentage ?? DEFAULT_RAKE_PERCENTAGE;
+      const rakeAmount = paymentAmountUsd.multipliedBy(rakePercent).dividedBy(100);
       const profit = rakeAmount.minus(grokResult.costUsd);
 
       console.log(`[Grok Gateway] Request ${request.id}:`);
-      console.log(`  Revenue: $${paymentAmountUsd.toFixed(4)} (${PAYMENT_AMOUNT.toFixed(4)} SOL)`);
+      console.log(`  Revenue: $${paymentAmountUsd.toFixed(4)} (${expectedAmount.toFixed(4)} SOL)`);
       console.log(`  Grok Cost: $${grokResult.costUsd.toFixed(4)}`);
-      console.log(`  Rake (${DEFAULT_RAKE_PERCENTAGE}%): $${rakeAmount.toFixed(4)}`);
+      console.log(`  Rake (${rakePercent}%): $${rakeAmount.toFixed(4)}`);
       console.log(`  Profit: $${profit.toFixed(4)}`);
       console.log(`  Tokens: ${grokResult.inputTokens} input + ${grokResult.outputTokens} output`);
 
@@ -330,13 +361,14 @@ export async function POST(req: NextRequest) {
   }
 
   const paymentReference = Keypair.generate().publicKey.toBase58();
+  const paymentAmount = calculateDynamicPrice(prompt);
 
   const request = await createGrokGatewayRequest({
     agentId,
     agentWallet,
     prompt,
     reference: paymentReference,
-    paymentAmountSol: PAYMENT_AMOUNT.toFixed(9),
+    paymentAmountSol: paymentAmount.toFixed(9),
     rakePercentage: DEFAULT_RAKE_PERCENTAGE,
   });
 
@@ -349,10 +381,10 @@ export async function POST(req: NextRequest) {
 
   const paymentUrl = encodeURL({
     recipient: new PublicKey(PROJECT_WALLET),
-    amount: PAYMENT_AMOUNT,
+    amount: paymentAmount,
     reference: new PublicKey(paymentReference),
     label: 'SolAI Grok Gateway',
-    message: `AI Gateway request (${PAYMENT_AMOUNT.toFixed(4)} SOL)`,
+    message: `AI Gateway request (${paymentAmount.toFixed(4)} SOL)`,
     memo: request.id,
   }).toString();
 
@@ -360,7 +392,7 @@ export async function POST(req: NextRequest) {
     {
       requestId: request.id,
       reference: paymentReference,
-      amount: PAYMENT_AMOUNT.toFixed(4),
+      amount: paymentAmount.toFixed(4),
       recipient: PROJECT_WALLET,
       paymentUrl,
       phantomUrl: buildPhantomUrl(paymentUrl),
