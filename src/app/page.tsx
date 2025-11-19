@@ -469,12 +469,20 @@ function AppContent() {
 
       <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-sm">
         <Link
-            href="/marketplace"
-            className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-6 py-3 font-semibold text-white transition hover:bg-white/20 hover:text-white"
-          >
-            Open AI Marketplace
+          href="/marketplace"
+          className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-6 py-3 font-semibold text-white transition hover:bg-white/20 hover:text-white"
+        >
+          Open AI Marketplace
         </Link>
-        <span className="text-gray-400">List insights for 0.001&nbsp;USDC · Sell data for 0.005&nbsp;USDC</span>
+        <Link
+          href="/agents"
+          className="inline-flex items-center rounded-full border border-cyan-300/40 bg-cyan-400/10 px-6 py-3 font-semibold text-cyan-200 transition hover:bg-cyan-400/20"
+        >
+          Try the Grok Gateway
+        </Link>
+        <span className="text-gray-400 text-center">
+          List insights for 0.001&nbsp;USDC · Sell data for 0.005&nbsp;USDC · Bill agents 0.0015&nbsp;SOL per Grok prompt
+        </span>
       </div>
 
       {connected && !isPaid() && status === "idle" && (

@@ -10,6 +10,7 @@ AI agents can browse and purchase insights from the marketplace and AI dashboard
 
 1. **Marketplace Insights** - Purchase curated trading insights from sellers (0.005 USDC)
 2. **AI Dashboard Insights** - Get AI-generated trading insights (0.0001 SOL)
+3. **x402 AI Gateway (Grok)** - Pay 0.0015 SOL to forward any prompt to Grok and receive the full response plus a Jupiter trade hint
 
 ## Setup
 
@@ -213,6 +214,91 @@ Confirm payment and receive the AI insight.
 - `422`: Payment validation failed
 - `500`: Server error
 
+## x402 AI Gateway (Grok)
+
+Use this endpoint when an agent needs us to forward a prompt to Grok (`model: grok-beta`). The payment flow mirrors every other x402 integration: request invoice (402), pay via Solana Pay, then confirm until the endpoint returns 200 with Grok’s answer.
+
+- **Invoice amount**: `0.0015 SOL`
+- **Default rake**: 60% (configurable per request)
+- **Grok cost logging**: The backend logs Grok spend vs. revenue for each request
+- **Dashboard**: Human operators can test the flow at [`/agents`](https://solai-payhub.vercel.app/agents)
+
+### 6. Request Grok Prompt Invoice
+
+**POST** `/api/agent/gateway`
+
+```json
+{
+  "prompt": "Find me a Solana catalyst for the next 24h.",
+  "agentId": "agent-42",
+  "agentWallet": "YOUR_SOL_WALLET"
+}
+```
+
+**Response (402 Payment Required):**
+```json
+{
+  "requestId": "gateway-request-id",
+  "reference": "base58-reference",
+  "amount": "0.0015",
+  "recipient": "PROJECT_WALLET",
+  "paymentUrl": "solana:...",
+  "phantomUrl": "https://phantom.app/ul/v1/pay?link=..."
+}
+```
+
+- Pay the invoice using the provided `paymentUrl` or `phantomUrl`
+- Payment must come from the same `agentWallet`
+- Keep the `reference` for the confirmation step
+
+### 7. Confirm Grok Prompt Payment
+
+**POST** `/api/agent/gateway`
+
+```json
+{
+  "reference": "base58-reference-from-step-6"
+}
+```
+
+**Response (200 – Delivered):**
+```json
+{
+  "status": "delivered",
+  "response": "Grok’s full answer…",
+  "jupiterRecommendation": "Consider checking Jupiter for best swap rates: https://jup.ag",
+  "signature": "solana-transaction-signature",
+  "costUsd": "0.0025",
+  "tokens": {
+    "input": 180,
+    "output": 220
+  }
+}
+```
+
+**Response (402 – Pending):**
+```json
+{
+  "status": "pending"
+}
+```
+
+**Status Codes:**
+- `200`: Payment confirmed, Grok output delivered
+- `402`: Either invoice generated (step 6) or payment still pending (step 7)
+- `400`: Invalid payload (missing prompt/agentWallet/reference)
+- `404`: Request not found (incorrect reference)
+- `422`: Payment validation failed (wrong amount/reference/recipient)
+- `503`: Gateway not configured (missing env vars)
+- `500`: Server error
+
+**Telemetry & Rake**
+
+During confirmation the backend logs:
+- Revenue in USD (`0.0015 SOL` using the configured SOL/USD heuristic)
+- Grok cost in USD calculated from `usage.prompt_tokens` and `usage.completion_tokens`
+- Net profit (`revenue × rake% - Grok cost`)
+
 ## Example Usage
 
 ### Python Example
@@ -339,6 +425,20 @@ if (paymentResponse.status === 402) {
   console.error("Payment request failed:", error);
 }
 ```
+
+## Agent Onboarding Checklist
+
+1. Share this document and the base URL `https://solai-payhub.vercel.app`.
+2. Provision a funded Solana wallet per agent (≥0.01 SOL + ≥0.01 USDC).
+3. Teach the standard x402 loop:
+   - POST → receive `402` with `paymentUrl` + `reference`
+   - Pay from the same wallet (wallet adapters or Solana Pay)
+   - Re-POST with the `reference` until you get a `200`
+4. Highlight the three paid features every agent can monetize:
+   - Marketplace purchases: `/api/marketplace/buy-agent`
+   - AI dashboard unlock: `/api/agent/insight` + `/api/agent/callback`
+   - Grok AI gateway: `/api/agent/gateway`
+5. Encourage agents to log payment signatures + references for auditing/retries.
 
 ## Payment Details
 
