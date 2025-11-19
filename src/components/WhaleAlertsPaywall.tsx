@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import BigNumber from "bignumber.js";
-import bs58 from "bs58";
 import { WhaleAlert } from "@/lib/whale";
 
 type WhalePlanOption = {
@@ -166,50 +165,12 @@ export default function WhaleAlertsPaywall() {
         .integerValue(BigNumber.ROUND_FLOOR)
         .toNumber();
 
-      // Fetch blockhash through RPC proxy to avoid connection object type errors
-      setStatus("Fetching latest blockhash…");
-      let blockhash: string;
-      let lastValidBlockHeight: number;
-      
-      try {
-        const rpcResponse = await fetch("/api/rpc", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "getLatestBlockhash",
-            params: [],
-          }),
-        });
-        
-        if (!rpcResponse.ok) {
-          throw new Error(`RPC request failed: ${rpcResponse.status}`);
-        }
-        
-        const rpcData = await rpcResponse.json();
-        if (rpcData.error) {
-          const errorMsg = rpcData.error.message || "Failed to get blockhash";
-          // Check for rate limit errors
-          if (errorMsg.includes("max usage") || errorMsg.includes("rate limit") || errorMsg.includes("429")) {
-            throw new Error("RPC rate limit reached. Please use the 'Open in Wallet' button instead, or try again in a few minutes.");
-          }
-          throw new Error(errorMsg);
-        }
-        
-        blockhash = rpcData.result.value.blockhash;
-        lastValidBlockHeight = rpcData.result.value.lastValidBlockHeight;
-      } catch (rpcErr: any) {
-        // If RPC fails, suggest using the wallet link instead
-        const errorMsg = rpcErr?.message || "RPC request failed";
-        setError(`${errorMsg}. Tip: Use the 'Open in Wallet' button above - it doesn't require RPC calls and works even with free tier limits.`);
-        setStatus("");
-        return;
-      }
-
-      // Build transaction with blockhash from RPC proxy
+      // Use exact same pattern as marketplace which works perfectly
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized");
       const transaction = new Transaction({
         feePayer: publicKey,
+        blockhash,
+        lastValidBlockHeight,
       }).add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
@@ -217,22 +178,18 @@ export default function WhaleAlertsPaywall() {
           lamports,
         })
       );
-      transaction.recentBlockhash = blockhash;
-      transaction.lastValidBlockHeight = lastValidBlockHeight;
       transaction.instructions[0].keys.push({
         pubkey: referenceKey,
         isSigner: false,
         isWritable: false,
       });
 
-      // Sign and send transaction
-      const signedTx = await signTransaction(transaction);
-      const serializedTx = signedTx.serialize();
-      const signature = await connection.sendRawTransaction(serializedTx, {
-        skipPreflight: true,
-        maxRetries: 3,
-      });
-      const sigStr = typeof signature === "string" ? signature : bs58.encode(signature);
+      // Use sendTransaction like marketplace does
+      if (!sendTransaction) {
+        throw new Error("sendTransaction not available");
+      }
+      const signature = await sendTransaction(transaction, connection);
+      const sigStr = signature;
       
       setStatus(`Transaction ${sigStr} submitted. Waiting for confirmation…`);
 
