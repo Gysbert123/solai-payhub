@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import BigNumber from "bignumber.js";
-import { FindReferenceError, findReference } from "@solana/pay";
+import bs58 from "bs58";
 import { WhaleAlert } from "@/lib/whale";
 
 type WhalePlanOption = {
@@ -37,7 +37,7 @@ const PROJECT_WALLET = process.env.NEXT_PUBLIC_PROJECT_WALLET;
 const blurClass = "blur-sm opacity-70 pointer-events-none select-none";
 
 export default function WhaleAlertsPaywall() {
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, sendTransaction, signTransaction } = useWallet();
   const { connection } = useConnection();
 
   const [previewAlerts, setPreviewAlerts] = useState<WhaleAlert[]>([]);
@@ -147,7 +147,7 @@ export default function WhaleAlertsPaywall() {
   };
 
   const handlePayWithWallet = async (plan: WhalePlanOption) => {
-    if (!publicKey || !sendTransaction) {
+    if (!publicKey || !signTransaction) {
       setError("Connect a wallet to pay from the browser.");
       return;
     }
@@ -166,21 +166,10 @@ export default function WhaleAlertsPaywall() {
         .integerValue(BigNumber.ROUND_FLOOR)
         .toNumber();
 
-      let blockhash: string;
-      let lastValidBlockHeight: number;
-      try {
-        const blockhashResult = await connection.getLatestBlockhash("confirmed");
-        blockhash = blockhashResult.blockhash;
-        lastValidBlockHeight = blockhashResult.lastValidBlockHeight;
-      } catch (blockhashErr: any) {
-        console.error("getLatestBlockhash error:", blockhashErr);
-        throw new Error(`Failed to get blockhash: ${blockhashErr?.message || String(blockhashErr)}`);
-      }
-
+      const { blockhash } = await connection.getLatestBlockhash();
       const transaction = new Transaction({
+        recentBlockhash: blockhash,
         feePayer: publicKey,
-        blockhash,
-        lastValidBlockHeight,
       }).add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
@@ -194,24 +183,39 @@ export default function WhaleAlertsPaywall() {
         isWritable: false,
       });
 
-      const signature = await sendTransaction(transaction, connection);
-      setStatus(`Transaction ${signature} submitted. Waiting for confirmation…`);
+      const signedTx = await signTransaction(transaction);
+      const serializedTx = signedTx.serialize();
+      const signature = await connection.sendRawTransaction(serializedTx, {
+        skipPreflight: true,
+        maxRetries: 3,
+      });
+      const sigStr = typeof signature === "string" ? signature : bs58.encode(signature);
+      
+      setStatus(`Transaction ${sigStr} submitted. Waiting for confirmation…`);
 
-      for (let i = 0; i < 30; i++) {
-        try {
-          await findReference(connection, referenceKey, { finality: "confirmed" });
-          setStatus("Payment confirmed. Finalizing access…");
-          await fetchAlerts({ reference: plan.reference });
-          return;
-        } catch (err) {
-          if (err instanceof FindReferenceError) {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            continue;
+      // Use polling confirmation instead of findReference
+      let confirmed = false;
+      for (let i = 0; i < 60; i++) {
+        const res = await fetch(`/api/confirm?sig=${sigStr}`);
+        const data = await res.json();
+
+        if (data.confirmed) {
+          if (data.err) {
+            throw new Error(`Transaction failed: ${JSON.stringify(data.err)}`);
           }
-          throw err;
+          confirmed = true;
+          break;
         }
+
+        await new Promise((r) => setTimeout(r, 500));
       }
-      setStatus("Still waiting for confirmation. Use the confirm button below once it settles.");
+
+      if (!confirmed) {
+        throw new Error("Confirmation timeout - transaction may still be processing. Check Solscan for status.");
+      }
+
+      setStatus("Payment confirmed. Finalizing access…");
+      await fetchAlerts({ reference: plan.reference });
     } catch (err: any) {
       console.error("Wallet payment failed", err);
       setError(err?.message ?? "Wallet payment failed.");
