@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { randomUUID } from 'crypto';
-import { positions, agentPayments, arbs, marketplaceListings, marketplacePurchases, sweepLogs } from './schema';
+import { positions, agentPayments, arbs, marketplaceListings, marketplacePurchases, sweepLogs, grokGatewayRequests } from './schema';
 import { eq, and, isNull, isNotNull, sql, inArray, desc, lt } from 'drizzle-orm';
 
 function isValidDatabaseUrl(url?: string) {
@@ -657,11 +657,124 @@ export async function recordSweepLog(params: {
     return null;
   }
 
-  return await db.insert(sweepLogs).values({
-    id: randomUUID(),
+  const id = randomUUID();
+  const insertData = {
+    id,
     sol_swept: params.solSwept,
     usdc_swept: params.usdcSwept,
-    sol_signature: params.solSignature,
-    usdc_signature: params.usdcSignature,
-  });
+    sol_signature: params.solSignature || null,
+    usdc_signature: params.usdcSignature || null,
+  };
+  await db.insert(sweepLogs).values(insertData as any);
+
+  return { id };
+}
+
+export async function createGrokGatewayRequest(params: {
+  agentId: string;
+  agentWallet: string;
+  prompt: string;
+  reference: string;
+  paymentAmountSol: string;
+  rakePercentage?: number;
+}) {
+  if (!db) {
+    console.warn('Database connection unavailable: Grok gateway request creation skipped.');
+    return null;
+  }
+
+  try {
+    const [record] = await db
+      .insert(grokGatewayRequests)
+      .values({
+        id: randomUUID(),
+        agent_id: params.agentId,
+        agent_wallet: params.agentWallet,
+        prompt: params.prompt,
+        reference: params.reference,
+        payment_amount_sol: params.paymentAmountSol,
+        rake_percentage: params.rakePercentage ?? 60,
+        status: 'pending',
+      } as any)
+      .returning();
+
+    return record;
+  } catch (error) {
+    console.error('Failed to create Grok gateway request:', error);
+    return null;
+  }
+}
+
+export async function getGrokGatewayRequestByReference(reference: string) {
+  if (!db) {
+    return null;
+  }
+
+  try {
+    const [record] = await db
+      .select()
+      .from(grokGatewayRequests)
+      .where(eq(grokGatewayRequests.reference, reference))
+      .limit(1);
+
+    return record || null;
+  } catch (error) {
+    console.error('Failed to fetch Grok gateway request:', error);
+    return null;
+  }
+}
+
+export async function confirmGrokGatewayPayment(params: {
+  reference: string;
+  signature: string;
+  grokCostUsd: string;
+  grokResponse: string;
+  jupiterRecommendation?: string;
+}) {
+  if (!db) {
+    console.warn('Database connection unavailable: Grok gateway confirmation skipped.');
+    return null;
+  }
+
+  try {
+    const [updated] = await db
+      .update(grokGatewayRequests)
+      .set({
+        status: 'confirmed',
+        tx_signature: params.signature,
+        grok_cost_usd: params.grokCostUsd,
+        grok_response: params.grokResponse,
+        jupiter_recommendation: params.jupiterRecommendation,
+        confirmed_at: sql`NOW()`,
+      } as any)
+      .where(eq(grokGatewayRequests.reference, params.reference))
+      .returning();
+
+    return updated || null;
+  } catch (error) {
+    console.error('Failed to confirm Grok gateway payment:', error);
+    return null;
+  }
+}
+
+export async function markGrokGatewayDelivered(id: string) {
+  if (!db) {
+    return null;
+  }
+
+  try {
+    const [updated] = await db
+      .update(grokGatewayRequests)
+      .set({
+        status: 'delivered',
+        delivered_at: sql`NOW()`,
+      } as any)
+      .where(eq(grokGatewayRequests.id, id))
+      .returning();
+
+    return updated || null;
+  } catch (error) {
+    console.error('Failed to mark Grok gateway as delivered:', error);
+    return null;
+  }
 }
