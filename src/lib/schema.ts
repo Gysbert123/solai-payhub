@@ -84,4 +84,22 @@ export const sweepLogs = pgTable('sweep_logs', {
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
+export const grokGatewayRequests = pgTable('grok_gateway_requests', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  agent_id: varchar('agent_id', { length: 64 }).notNull(),
+  agent_wallet: varchar('agent_wallet', { length: 64 }).notNull(),
+  prompt: text('prompt').notNull(),
+  reference: varchar('reference', { length: 64 }).notNull(),
+  status: varchar('status', { length: 20 }).default('pending').notNull(),
+  payment_amount_sol: numeric('payment_amount_sol', { precision: 20, scale: 9 }).notNull(),
+  grok_cost_usd: numeric('grok_cost_usd', { precision: 20, scale: 9 }),
+  rake_percentage: integer('rake_percentage').default(60),
+  tx_signature: varchar('tx_signature', { length: 120 }),
+  grok_response: text('grok_response'),
+  jupiter_recommendation: text('jupiter_recommendation'),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  confirmed_at: timestamp('confirmed_at', { withTimezone: true }),
+  delivered_at: timestamp('delivered_at', { withTimezone: true }),
+});
+
 // FORCE REBUILD
