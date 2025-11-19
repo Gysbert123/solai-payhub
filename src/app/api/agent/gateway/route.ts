@@ -17,11 +17,17 @@ const DEFAULT_RAKE_PERCENTAGE = Number(process.env.GROK_RAKE_PERCENTAGE ?? '60')
 // Dynamic pricing config (based on xAI posted rates)
 const INPUT_RATE_PER_MTOK_USD = Number(process.env.GROK_INPUT_RATE_PER_MTOK_USD ?? '5'); // $5 / 1M prompt tokens
 const OUTPUT_RATE_PER_MTOK_USD = Number(process.env.GROK_OUTPUT_RATE_PER_MTOK_USD ?? '15'); // $15 / 1M completion tokens
-const SOL_PRICE_USD = Number(process.env.GROK_SOL_PRICE_USD ?? '150');
 const OUTPUT_TOKEN_RATIO = Number(process.env.GROK_EXPECTED_OUTPUT_RATIO ?? '0.6'); // expected completion tokens relative to prompt tokens
 const MIN_PRICE_SOL = Number(process.env.GROK_MIN_PRICE_SOL ?? '0.0005');
 const MAX_PRICE_SOL = Number(process.env.GROK_MAX_PRICE_SOL ?? '0.01');
 const PRICE_RAKE_MULTIPLIER = Number(process.env.GROK_PRICE_RAKE_MULTIPLIER ?? '1.6'); // 60% margin default
+const SOL_PRICE_FALLBACK_USD = Number(process.env.GROK_SOL_PRICE_USD ?? '150');
+const SOL_PRICE_CACHE_MS = Number(process.env.GROK_SOL_PRICE_CACHE_MS ?? '300000');
+const SOL_PRICE_API_URL =
+  process.env.GROK_SOL_PRICE_API_URL ??
+  'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd';
+
+let cachedSolPrice: { value: number; expiresAt: number } | null = null;
 
 function sanitizeString(value: unknown, maxLength: number) {
   if (typeof value !== 'string') return '';
@@ -32,12 +38,44 @@ function buildPhantomUrl(paymentUrl: string) {
   return `https://phantom.app/ul/v1/pay?link=${encodeURIComponent(paymentUrl)}`;
 }
 
+async function getSolPriceUsd(): Promise<number> {
+  const now = Date.now();
+  if (cachedSolPrice && cachedSolPrice.expiresAt > now && Number.isFinite(cachedSolPrice.value)) {
+    return cachedSolPrice.value;
+  }
+
+  try {
+    const res = await fetch(SOL_PRICE_API_URL, { next: { revalidate: 0 } });
+    if (!res.ok) {
+      throw new Error(`price request failed: ${res.status}`);
+    }
+    const data = await res.json();
+    const maybe = data?.solana?.usd ?? data?.market_data?.current_price?.usd;
+    const parsed = Number(maybe);
+    if (!parsed || !Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error('invalid price response');
+    }
+    cachedSolPrice = {
+      value: parsed,
+      expiresAt: now + SOL_PRICE_CACHE_MS,
+    };
+    return parsed;
+  } catch (err) {
+    console.warn('[Grok Gateway] Falling back to static SOL price', err);
+    cachedSolPrice = {
+      value: SOL_PRICE_FALLBACK_USD,
+      expiresAt: now + SOL_PRICE_CACHE_MS,
+    };
+    return SOL_PRICE_FALLBACK_USD;
+  }
+}
+
 function estimateTokenCount(text: string) {
   if (!text) return 1;
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
-function calculateDynamicPrice(prompt: string) {
+function calculateDynamicPrice(prompt: string, solPriceUsd: number) {
   const promptTokens = estimateTokenCount(prompt);
   const expectedOutputTokens = Math.max(1, Math.ceil(promptTokens * OUTPUT_TOKEN_RATIO));
 
@@ -45,7 +83,7 @@ function calculateDynamicPrice(prompt: string) {
   const outputCostUsd = (expectedOutputTokens / 1_000_000) * OUTPUT_RATE_PER_MTOK_USD;
   const baseUsd = (inputCostUsd + outputCostUsd) * PRICE_RAKE_MULTIPLIER;
 
-  let solAmount = baseUsd / SOL_PRICE_USD;
+  let solAmount = baseUsd / (solPriceUsd || SOL_PRICE_FALLBACK_USD);
   if (!Number.isFinite(solAmount) || solAmount <= 0) {
     solAmount = MIN_PRICE_SOL;
   }
@@ -266,6 +304,7 @@ export async function POST(req: NextRequest) {
     }
 
     const connection = new Connection(SOLANA_ENDPOINT, 'confirmed');
+    const solPriceUsd = await getSolPriceUsd();
     const referenceKey = new PublicKey(reference);
 
     try {
@@ -290,7 +329,7 @@ export async function POST(req: NextRequest) {
       const jupiterRec = generateJupiterRecommendation(grokResult.response);
 
       // Calculate rake (for logging)
-      const paymentAmountUsd = expectedAmount.multipliedBy(SOL_PRICE_USD);
+      const paymentAmountUsd = expectedAmount.multipliedBy(solPriceUsd);
       const rakePercent = request.rake_percentage ?? DEFAULT_RAKE_PERCENTAGE;
       const rakeAmount = paymentAmountUsd.multipliedBy(rakePercent).dividedBy(100);
       const profit = rakeAmount.minus(grokResult.costUsd);
@@ -360,8 +399,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'agentWallet required' }, { status: 400 });
   }
 
+  const solPriceUsd = await getSolPriceUsd();
   const paymentReference = Keypair.generate().publicKey.toBase58();
-  const paymentAmount = calculateDynamicPrice(prompt);
+  const paymentAmount = calculateDynamicPrice(prompt, solPriceUsd);
 
   const request = await createGrokGatewayRequest({
     agentId,

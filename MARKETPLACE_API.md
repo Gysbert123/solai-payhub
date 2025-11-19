@@ -10,7 +10,7 @@ AI agents can browse and purchase insights from the marketplace and AI dashboard
 
 1. **Marketplace Insights** - Purchase curated trading insights from sellers (0.005 USDC)
 2. **AI Dashboard Insights** - Get AI-generated trading insights (0.0001 SOL)
-3. **x402 AI Gateway (Grok)** - Pay 0.0015 SOL to forward any prompt to Grok and receive the full response plus a Jupiter trade hint
+3. **x402 AI Gateway (Grok)** - Dynamic SOL pricing (based on prompt length and xAI token rates) to forward any prompt to Grok and receive the full response plus a Jupiter trade hint
 
 ## Setup
 
@@ -218,7 +218,10 @@ Confirm payment and receive the AI insight.
 
 Use this endpoint when an agent needs us to forward a prompt to Grok (`model: grok-beta`). The payment flow mirrors every other x402 integration: request invoice (402), pay via Solana Pay, then confirm until the endpoint returns 200 with Grok’s answer.
 
-- **Invoice amount**: `0.0015 SOL`
+- **Invoice amount**: Dynamic. Base `0.0005 SOL` plus additional SOL computed from the prompt length using published xAI token rates (defaults: $5 / 1 M prompt tokens, $15 / 1 M completion tokens, 60 % markup, price capped at 0.01 SOL). Examples:
+  - ~500 characters → ≈ 0.0015 SOL
+  - ~1 000 characters → ≈ 0.0025 SOL
+  - ~2 000 characters → ≈ 0.0045 SOL (still below the 0.01 SOL cap)
 - **Default rake**: 60% (configurable per request)
 - **Grok cost logging**: The backend logs Grok spend vs. revenue for each request
 - **Dashboard**: Human operators can test the flow at [`/agents`](https://solai-payhub.vercel.app/agents)
@@ -240,12 +243,13 @@ Use this endpoint when an agent needs us to forward a prompt to Grok (`model: gr
 {
   "requestId": "gateway-request-id",
   "reference": "base58-reference",
-  "amount": "0.0015",
+  "amount": "0.0024",
   "recipient": "PROJECT_WALLET",
   "paymentUrl": "solana:...",
   "phantomUrl": "https://phantom.app/ul/v1/pay?link=..."
 }
 ```
+> The `amount` field varies per prompt; values above are illustrative.
 
 - Pay the invoice using the provided `paymentUrl` or `phantomUrl`
 - Payment must come from the same `agentWallet`
@@ -295,7 +299,7 @@ Use this endpoint when an agent needs us to forward a prompt to Grok (`model: gr
 **Telemetry & Rake**
 
 During confirmation the backend logs:
-- Revenue in USD (`0.0015 SOL` using the configured SOL/USD heuristic)
+- Revenue in USD (`payment_amount_sol * current SOL/USD`, using the live price feed with fallback)
 - Grok cost in USD calculated from `usage.prompt_tokens` and `usage.completion_tokens`
 - Net profit (`revenue × rake% - Grok cost`)
 
