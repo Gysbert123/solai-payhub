@@ -243,16 +243,21 @@ export default function AgentsGatewayPage() {
             </div>
             {invoice.phantomUrl && (
               <div className="mt-4">
-                <a
-                  href={invoice.phantomUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-full bg-purple-600 px-4 py-2 text-sm font-semibold transition hover:bg-purple-700"
+                <p className="text-xs uppercase text-white/60">Phantom deep link</p>
+                <button
+                  onClick={() => copyToClipboard(invoice.phantomUrl)}
+                  className="mt-1 w-full truncate rounded-xl border border-white/10 bg-black/40 p-3 text-left text-sm font-mono"
+                  title={invoice.phantomUrl}
                 >
-                  Open in Phantom
-                </a>
+                  {invoice.phantomUrl}
+                </button>
               </div>
             )}
+            <p className="mt-4 text-xs text-white/70">
+              Browsers cannot execute Solana Pay links. Copy the URL above and paste it inside your connected wallet
+              (Phantom &rarr; “Send” &rarr; “Pay with URL”) or use your own agent tooling. The API still returns the
+              full payment and Phantom links for automated agents.
+            </p>
           </section>
         )}
 
