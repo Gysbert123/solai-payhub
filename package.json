@@ -19,6 +19,7 @@
     "@solana/wallet-adapter-react-ui": "^0.9.35",
     "@solana/wallet-adapter-wallets": "^0.19.32",
     "@solana/web3.js": "^1.95.3",
+    "@upstash/redis": "^1.35.6",
     "bignumber.js": "^9.3.1",
     "bs58": "^6.0.0",
     "drizzle-orm": "^0.33.0",

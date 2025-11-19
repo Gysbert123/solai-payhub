@@ -469,3 +469,107 @@ Listings expire after 24 hours by default. Expired listings are automatically ma
 
 For issues or questions, check the main repository or contact the development team.
 
+## Whale Alerts API
+
+Unlock real-time whale alerts (> $1,000 USD buys/sells on Solana) with the same SOL-based 402 flow.
+
+### Webhook Setup (Helius)
+
+Configure Helius to POST enhanced transactions to `https://solai-payhub.vercel.app/api/webhooks/helius`.
+
+```bash
+curl -X POST "https://api.helius.xyz/v0/webhooks?api-key=YOUR_HELIUS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "webhookURL": "https://solai-payhub.vercel.app/api/webhooks/helius",
+    "txnTypes": ["ANY"],
+    "accountAddresses": [],
+    "webhookType": "enhanced",
+    "authHeader": "YOUR_WEBHOOK_SECRET"
+  }'
+```
+
+Set `HELIUS_WEBHOOK_SECRET` so the handler can verify the request signature.
+
+### GET `/api/whale-alerts`
+
+Query parameters:
+
+- `wallet` (required unless `preview=1`)
+- `min_usd` (default 1000)
+- `limit` (default 50, max 200)
+- `preview=1` for a blurred sample feed
+- `reference` to confirm payment after paying the Solana Pay invoice
+
+#### Preview
+
+```http
+GET /api/whale-alerts?preview=1&limit=3&min_usd=1500
+```
+
+```json
+{
+  "paid": false,
+  "alerts": [
+    { "id": "preview", "wallet": "8x…", "usdValue": 2400, "...": "..." }
+  ]
+}
+```
+
+#### Paid response
+
+```http
+GET /api/whale-alerts?wallet=YourWallet&min_usd=1000&limit=50
+```
+
+```json
+{
+  "paid": true,
+  "tier": "hourly",
+  "expiresInMs": 3200000,
+  "alerts": [ { "wallet": "…", "usdValue": 5000, "...": "..." } ]
+}
+```
+
+#### Payment Required (402)
+
+```json
+{
+  "feature": "whale-alerts",
+  "plans": [
+    {
+      "tier": "hourly",
+      "label": "1 Hour Pass",
+      "amount": "0.0005",
+      "durationSeconds": 3600,
+      "reference": "Base58Ref",
+      "paymentUrl": "solana:…",
+      "phantomUrl": "https://phantom.app/ul/v1/pay?link=…"
+    },
+    {
+      "tier": "monthly",
+      "label": "30-Day Pass",
+      "amount": "0.01",
+      "durationSeconds": 2592000,
+      "reference": "Base58Ref",
+      "paymentUrl": "solana:…",
+      "phantomUrl": "https://phantom.app/ul/v1/pay?link=…"
+    }
+  ]
+}
+```
+
+After paying, call `GET /api/whale-alerts?...&reference=<same-reference>` to grant access (1 hour or 30 days).
+
+### Whale Alerts Environment Variables
+
+| Key | Description |
+| --- | --- |
+| `HELIUS_WEBHOOK_SECRET` | Shared secret used to verify webhook requests. |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Backing store for alerts, pending invoices, and access passes. |
+| `WHALE_ALERT_MIN_USD` | Minimum USD threshold for stored alerts (default 1000). |
+| `WHALE_HOURLY_PRICE_SOL` / `WHALE_MONTHLY_PRICE_SOL` | SOL pricing for the hourly and monthly passes. |
+| `WHALE_HOURLY_DURATION_MS` / `WHALE_MONTHLY_DURATION_MS` | Access duration in milliseconds. |
+| `WHALE_ALERTS_MAX` | Maximum number of whale alerts stored (default 200). |
+| `GROK_SOL_PRICE_API_URL`, `GROK_SOL_PRICE_CACHE_MS`, etc. | Shared SOL pricing controls for all SOL invoices. |
+
