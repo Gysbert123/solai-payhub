@@ -4,7 +4,6 @@ const SOLANA_ENDPOINT = process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.
 
 export async function GET() {
   try {
-    // Fetch blockhash directly via RPC to avoid Connection object type issues
     const response = await fetch(SOLANA_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -14,23 +13,27 @@ export async function GET() {
         jsonrpc: '2.0',
         id: 1,
         method: 'getLatestBlockhash',
-        params: ['finalized'],
+        params: [
+          {
+            commitment: 'finalized',
+          },
+        ],
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`RPC request failed: ${response.status}`);
+      throw new Error('RPC request failed: ' + response.status);
     }
 
     const data = await response.json();
-    
+
     if (data.error) {
       throw new Error(data.error.message || 'RPC error');
     }
 
     const blockhash = data.result.value.blockhash;
     const lastValidBlockHeight = data.result.value.lastValidBlockHeight;
-    
+
     return NextResponse.json({
       blockhash,
       lastValidBlockHeight,
@@ -45,4 +48,3 @@ export async function GET() {
 }
 
 export const dynamic = 'force-dynamic';
-
