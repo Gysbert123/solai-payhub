@@ -21,14 +21,21 @@ export async function GET() {
       }),
     });
 
+    const text = await response.text();
+
     if (!response.ok) {
-      throw new Error('RPC request failed: ' + response.status);
+      throw new Error('RPC request failed: ' + response.status + ' body=' + text);
     }
 
-    const data = await response.json();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch (err) {
+      throw new Error('Failed to parse blockhash response: ' + err + ' body=' + text);
+    }
 
-    if (data.error) {
-      throw new Error(data.error.message || 'RPC error');
+    if (!data?.result?.value?.blockhash) {
+      throw new Error('Invalid blockhash response: ' + JSON.stringify(data));
     }
 
     const blockhash = data.result.value.blockhash;
@@ -41,7 +48,7 @@ export async function GET() {
   } catch (error: any) {
     console.error('Blockhash endpoint error:', error);
     return NextResponse.json(
-      { error: 'Failed to get blockhash', message: error.message },
+      { error: 'Failed to get blockhash', message: String(error?.message || error) },
       { status: 500 }
     );
   }
