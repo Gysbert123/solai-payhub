@@ -214,7 +214,8 @@ export default function WhaleAlertsPaywall() {
       
       if (!sendRes.ok) {
         const errorData = await sendRes.json().catch(() => ({}));
-        throw new Error(errorData.message || "Failed to send transaction");
+        console.error("Send TX error:", errorData);
+        throw new Error(errorData.message || `Failed to send transaction: ${sendRes.status}`);
       }
       
       const { signature } = await sendRes.json();
@@ -224,27 +225,50 @@ export default function WhaleAlertsPaywall() {
         throw new Error(`Invalid signature received: ${sigStr}`);
       }
       
-      setStatus(`Transaction ${sigStr} submitted. Waiting for confirmation…`);
+      console.log("Transaction signature:", sigStr);
+      setStatus(`Transaction ${sigStr.slice(0, 8)}... submitted. Waiting for confirmation…`);
 
       // Use polling confirmation instead of findReference
       let confirmed = false;
+      let lastStatus = "";
       for (let i = 0; i < 60; i++) {
-        const res = await fetch(`/api/confirm?sig=${sigStr}`);
-        const data = await res.json();
+        try {
+          const res = await fetch(`/api/confirm?sig=${sigStr}`);
+          const data = await res.json();
 
-        if (data.confirmed) {
-          if (data.err) {
-            throw new Error(`Transaction failed: ${JSON.stringify(data.err)}`);
+          if (data.error) {
+            console.warn(`[Confirm ${i}] Error:`, data.error);
+            lastStatus = data.error;
           }
-          confirmed = true;
-          break;
+
+          if (data.confirmed) {
+            if (data.err) {
+              throw new Error(`Transaction failed: ${JSON.stringify(data.err)}`);
+            }
+            confirmed = true;
+            console.log("Transaction confirmed!");
+            break;
+          }
+
+          if (i % 10 === 0) {
+            setStatus(`Waiting for confirmation... (${i * 0.5}s) - Check: https://solscan.io/tx/${sigStr}`);
+          }
+        } catch (err: any) {
+          console.error(`[Confirm ${i}] Request failed:`, err);
+          lastStatus = err.message;
         }
 
         await new Promise((r) => setTimeout(r, 500));
       }
 
       if (!confirmed) {
-        throw new Error("Confirmation timeout - transaction may still be processing. Check Solscan for status.");
+        const solscanUrl = `https://solscan.io/tx/${sigStr}`;
+        console.error("Confirmation timeout. Last status:", lastStatus);
+        throw new Error(
+          `Confirmation timeout after 30s. ` +
+          `Transaction may still be processing. ` +
+          `Check status: ${solscanUrl}`
+        );
       }
 
       setStatus("Payment confirmed. Finalizing access…");
