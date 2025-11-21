@@ -189,12 +189,8 @@ export default function WhaleAlertsPaywall() {
         .integerValue(BigNumber.ROUND_FLOOR)
         .toNumber();
 
-      // Fetch blockhash from backend endpoint so we reuse the server-side RPC with fallbacks
-      const blockhashRes = await fetch("/api/blockhash");
-      if (!blockhashRes.ok) {
-        throw new Error("Failed to get blockhash from server");
-      }
-      const { blockhash, lastValidBlockHeight } = await blockhashRes.json();
+      // Fetch latest blockhash via the dedicated connection (handles fallback + rate limits)
+      const { blockhash } = await directConnection.getLatestBlockhash("finalized");
       const transaction = new Transaction({
         feePayer: publicKey,
       }).add(
@@ -205,7 +201,6 @@ export default function WhaleAlertsPaywall() {
         })
       );
       transaction.recentBlockhash = blockhash;
-      transaction.lastValidBlockHeight = lastValidBlockHeight;
       transaction.instructions[0].keys.push({
         pubkey: referenceKey,
         isSigner: false,
