@@ -1,24 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const HELIUS_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+import { fetchWithFallback } from '@/lib/rpc-fallback';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     
-    const response = await fetch(HELIUS_RPC_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
+    // Extract method and params from the RPC request
+    const { method, params = [] } = body;
 
-    const data = await response.json();
+    if (!method) {
+      return NextResponse.json(
+        { error: 'Missing method in RPC request' },
+        { status: 400 }
+      );
+    }
+
+    // Use fallback system
+    const data = await fetchWithFallback(method, params);
     return NextResponse.json(data);
   } catch (error: any) {
+    console.error('RPC proxy error:', error);
     return NextResponse.json(
-      { error: 'RPC proxy failed', message: error.message },
+      { 
+        error: 'RPC proxy failed', 
+        message: error.message,
+        hint: 'All RPC endpoints are rate-limited. Consider upgrading your RPC plan.'
+      },
       { status: 500 }
     );
   }
