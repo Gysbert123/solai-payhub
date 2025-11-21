@@ -166,9 +166,14 @@ export default function WhaleAlertsPaywall() {
         .integerValue(BigNumber.ROUND_FLOOR)
         .toNumber();
 
-      // Get blockhash directly from connection (same pattern as marketplace)
+      // Fetch blockhash from server-side endpoint (handles RPC fallback properly)
       setStatus("Fetching latest blockhash…");
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized");
+      const blockhashRes = await fetch("/api/blockhash");
+      if (!blockhashRes.ok) {
+        const errorData = await blockhashRes.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to get blockhash from server");
+      }
+      const { blockhash, lastValidBlockHeight } = await blockhashRes.json();
 
       setStatus("Building transaction…");
       const transaction = new Transaction({
