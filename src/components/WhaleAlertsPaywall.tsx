@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import BigNumber from "bignumber.js";
+import bs58 from "bs58";
 import { WhaleAlert } from "@/lib/whale";
 
 type WhalePlanOption = {
@@ -187,17 +188,22 @@ export default function WhaleAlertsPaywall() {
         isWritable: false,
       });
 
-      // Use sendTransaction with connection from wallet adapter context (same as marketplace)
-      if (!sendTransaction) {
-        throw new Error("sendTransaction not available");
+      // Use manual sign + send pattern (same as AI payment flow) to ensure proper broadcasting
+      if (!signTransaction) {
+        throw new Error("signTransaction not available");
       }
       
-      setStatus("Sending transaction to wallet for approval…");
-      const signature = await sendTransaction(transaction, connection, {
-        skipPreflight: false,
+      setStatus("Requesting wallet signature…");
+      const signed = await signTransaction(transaction);
+      const serializedTx = signed.serialize();
+      
+      setStatus("Broadcasting transaction to network…");
+      const signature = await connection.sendRawTransaction(serializedTx, {
+        skipPreflight: true,
         maxRetries: 3,
       });
-      const sigStr = typeof signature === "string" ? signature : signature.toString();
+      
+      const sigStr = typeof signature === "string" ? signature : bs58.encode(signature);
       
       if (!sigStr || sigStr.length < 32) {
         throw new Error(`Invalid signature received: ${sigStr}`);
