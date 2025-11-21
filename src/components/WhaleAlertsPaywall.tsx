@@ -226,15 +226,19 @@ export default function WhaleAlertsPaywall() {
       }
       
       console.log("Transaction signature:", sigStr);
-      setStatus(`Transaction ${sigStr.slice(0, 8)}... submitted. Waiting for confirmation…`);
+      const solscanUrl = `https://solscan.io/tx/${sigStr}`;
+      setStatus(`Transaction submitted: ${sigStr.slice(0, 8)}... - View: ${solscanUrl}`);
 
       // Use polling confirmation instead of findReference
       let confirmed = false;
       let lastStatus = "";
+      let lastResponse: any = null;
+      
       for (let i = 0; i < 60; i++) {
         try {
           const res = await fetch(`/api/confirm?sig=${sigStr}`);
           const data = await res.json();
+          lastResponse = data;
 
           if (data.error) {
             console.warn(`[Confirm ${i}] Error:`, data.error);
@@ -250,8 +254,9 @@ export default function WhaleAlertsPaywall() {
             break;
           }
 
-          if (i % 10 === 0) {
-            setStatus(`Waiting for confirmation... (${i * 0.5}s) - Check: https://solscan.io/tx/${sigStr}`);
+          // Show progress every 5 seconds
+          if (i % 10 === 0 && i > 0) {
+            setStatus(`Waiting for confirmation... (${(i * 0.5).toFixed(1)}s) - ${solscanUrl}`);
           }
         } catch (err: any) {
           console.error(`[Confirm ${i}] Request failed:`, err);
@@ -262,13 +267,19 @@ export default function WhaleAlertsPaywall() {
       }
 
       if (!confirmed) {
-        const solscanUrl = `https://solscan.io/tx/${sigStr}`;
-        console.error("Confirmation timeout. Last status:", lastStatus);
-        throw new Error(
+        console.error("Confirmation timeout. Last response:", lastResponse);
+        console.error("Last status:", lastStatus);
+        console.error("Solscan URL:", solscanUrl);
+        
+        // Don't throw error - let user check Solscan manually
+        setError(
           `Confirmation timeout after 30s. ` +
           `Transaction may still be processing. ` +
-          `Check status: ${solscanUrl}`
+          `Please check: ${solscanUrl} ` +
+          `If it shows as confirmed, click "I Paid - Refresh Access" below.`
         );
+        setStatus("");
+        return; // Exit early, don't throw
       }
 
       setStatus("Payment confirmed. Finalizing access…");
