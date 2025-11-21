@@ -13,11 +13,12 @@ const WalletMultiButtonDynamic = dynamic(
   { ssr: false }
 );
 
-function resolveEndpoint(customUrl: string | undefined, fallback: string) {
+function normalizeRpcUrl(customUrl: string | undefined, fallback: string): string {
   if (!customUrl) return fallback;
   if (customUrl.startsWith("http://") || customUrl.startsWith("https://")) {
     return customUrl;
   }
+  // For relative paths like /api/rpc, convert to absolute URL on client
   if (typeof window !== "undefined" && customUrl.startsWith("/")) {
     return new URL(customUrl, window.location.origin).toString();
   }
@@ -26,9 +27,14 @@ function resolveEndpoint(customUrl: string | undefined, fallback: string) {
 
 export default function WhaleAlertsPage() {
   const network = process.env.NEXT_PUBLIC_SOLANA_CLUSTER === "devnet" ? "devnet" : "mainnet-beta";
-  const fallbackEndpoint = useMemo(() => clusterApiUrl(network), [network]);
+  const defaultEndpoint = useMemo(() => clusterApiUrl(network), [network]);
   const customRpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim();
-  const endpoint = useMemo(() => resolveEndpoint(customRpc, fallbackEndpoint), [customRpc, fallbackEndpoint]);
+  
+  // Use same endpoint resolution as marketplace
+  const endpoint = useMemo(() => {
+    if (!customRpc) return defaultEndpoint;
+    return normalizeRpcUrl(customRpc, defaultEndpoint);
+  }, [customRpc, defaultEndpoint]);
   const wallets = useMemo(() => [], []);
   const connectionConfig = useMemo(
     () => ({

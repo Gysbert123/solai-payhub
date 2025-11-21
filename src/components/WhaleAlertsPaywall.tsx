@@ -165,16 +165,15 @@ export default function WhaleAlertsPaywall() {
         .integerValue(BigNumber.ROUND_FLOOR)
         .toNumber();
 
-      // Fetch blockhash from server-side endpoint (handles RPC fallback properly)
-      const blockhashRes = await fetch("/api/blockhash");
-      if (!blockhashRes.ok) {
-        const errorData = await blockhashRes.json().catch(() => ({}));
-        throw new Error(errorData.message || "Failed to get blockhash from server");
-      }
-      const { blockhash } = await blockhashRes.json();
+      // Get blockhash directly from connection (same pattern as marketplace)
+      setStatus("Fetching latest blockhash…");
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized");
 
+      setStatus("Building transaction…");
       const transaction = new Transaction({
         feePayer: publicKey,
+        blockhash,
+        lastValidBlockHeight,
       }).add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
@@ -182,7 +181,6 @@ export default function WhaleAlertsPaywall() {
           lamports,
         })
       );
-      transaction.recentBlockhash = blockhash;
       transaction.instructions[0].keys.push({
         pubkey: referenceKey,
         isSigner: false,
@@ -194,8 +192,16 @@ export default function WhaleAlertsPaywall() {
         throw new Error("sendTransaction not available");
       }
       
-      const signature = await sendTransaction(transaction, connection);
-      const sigStr = signature;
+      setStatus("Sending transaction to wallet for approval…");
+      const signature = await sendTransaction(transaction, connection, {
+        skipPreflight: false,
+        maxRetries: 3,
+      });
+      const sigStr = typeof signature === "string" ? signature : signature.toString();
+      
+      if (!sigStr || sigStr.length < 32) {
+        throw new Error(`Invalid signature received: ${sigStr}`);
+      }
       
       setStatus(`Transaction ${sigStr} submitted. Waiting for confirmation…`);
 
