@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
-import { Connection, PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import BigNumber from "bignumber.js";
 import { WhaleAlert } from "@/lib/whale";
 
@@ -37,31 +37,7 @@ const blurClass = "blur-sm opacity-70 pointer-events-none select-none";
 
 export default function WhaleAlertsPaywall() {
   const { publicKey, sendTransaction, signTransaction } = useWallet();
-  const directRpcEndpoint = useMemo(() => {
-    const custom = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim();
-    if (typeof window === "undefined") {
-      return custom && custom.startsWith("http") ? custom : "https://rpc.ankr.com/solana";
-    }
-    if (custom) {
-      if (custom.startsWith("http://") || custom.startsWith("https://")) {
-        return custom;
-      }
-      if (custom.startsWith("/")) {
-        return new URL(custom, window.location.origin).toString();
-      }
-    }
-    return new URL("/api/rpc", window.location.origin).toString();
-  }, []);
-
-  const directConnection = useMemo(
-    () =>
-      new Connection(directRpcEndpoint, {
-        commitment: "confirmed",
-        wsEndpoint: undefined,
-        disableRetryOnRateLimit: true,
-      }),
-    [directRpcEndpoint]
-  );
+  const { connection } = useConnection();
 
   const [previewAlerts, setPreviewAlerts] = useState<WhaleAlert[]>([]);
   const [alerts, setAlerts] = useState<WhaleAlert[]>([]);
@@ -189,8 +165,14 @@ export default function WhaleAlertsPaywall() {
         .integerValue(BigNumber.ROUND_FLOOR)
         .toNumber();
 
-      // Fetch latest blockhash via the dedicated connection (handles fallback + rate limits)
-      const { blockhash } = await directConnection.getLatestBlockhash("finalized");
+      // Fetch blockhash from server-side endpoint (handles RPC fallback properly)
+      const blockhashRes = await fetch("/api/blockhash");
+      if (!blockhashRes.ok) {
+        const errorData = await blockhashRes.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to get blockhash from server");
+      }
+      const { blockhash } = await blockhashRes.json();
+
       const transaction = new Transaction({
         feePayer: publicKey,
       }).add(
@@ -207,11 +189,12 @@ export default function WhaleAlertsPaywall() {
         isWritable: false,
       });
 
-      // Use sendTransaction like marketplace does
+      // Use sendTransaction with connection from wallet adapter context (same as marketplace)
       if (!sendTransaction) {
         throw new Error("sendTransaction not available");
       }
-      const signature = await sendTransaction(transaction, directConnection);
+      
+      const signature = await sendTransaction(transaction, connection);
       const sigStr = signature;
       
       setStatus(`Transaction ${sigStr} submitted. Waiting for confirmation…`);
