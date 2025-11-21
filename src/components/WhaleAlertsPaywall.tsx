@@ -176,10 +176,10 @@ export default function WhaleAlertsPaywall() {
       const { blockhash, lastValidBlockHeight } = await blockhashRes.json();
 
       setStatus("Building transaction…");
+      // Use recentBlockhash like AI payment (simpler, more reliable)
       const transaction = new Transaction({
+        recentBlockhash: blockhash,
         feePayer: publicKey,
-        blockhash,
-        lastValidBlockHeight,
       }).add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
@@ -187,6 +187,7 @@ export default function WhaleAlertsPaywall() {
           lamports,
         })
       );
+      // Add reference key to the transfer instruction
       transaction.instructions[0].keys.push({
         pubkey: referenceKey,
         isSigner: false,
