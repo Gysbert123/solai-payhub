@@ -202,13 +202,23 @@ export default function WhaleAlertsPaywall() {
       const signed = await signTransaction(transaction);
       const serializedTx = signed.serialize();
       
+      // Send transaction via server-side endpoint to avoid connection issues
       setStatus("Broadcasting transaction to network…");
-      const signature = await connection.sendRawTransaction(serializedTx, {
-        skipPreflight: true,
-        maxRetries: 3,
+      const sendRes = await fetch("/api/send-tx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transaction: Buffer.from(serializedTx).toString("base64"),
+        }),
       });
       
-      const sigStr = typeof signature === "string" ? signature : bs58.encode(signature);
+      if (!sendRes.ok) {
+        const errorData = await sendRes.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to send transaction");
+      }
+      
+      const { signature } = await sendRes.json();
+      const sigStr = typeof signature === "string" ? signature : signature.toString();
       
       if (!sigStr || sigStr.length < 32) {
         throw new Error(`Invalid signature received: ${sigStr}`);
