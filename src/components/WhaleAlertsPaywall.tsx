@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useWallet, useConnection } from "@solana/wallet-adapter-react";
-import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { Connection, PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import BigNumber from "bignumber.js";
 import { WhaleAlert } from "@/lib/whale";
 
@@ -37,7 +37,31 @@ const blurClass = "blur-sm opacity-70 pointer-events-none select-none";
 
 export default function WhaleAlertsPaywall() {
   const { publicKey, sendTransaction, signTransaction } = useWallet();
-  const { connection } = useConnection();
+  const directRpcEndpoint = useMemo(() => {
+    const custom = process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.trim();
+    if (typeof window === "undefined") {
+      return custom && custom.startsWith("http") ? custom : "https://rpc.ankr.com/solana";
+    }
+    if (custom) {
+      if (custom.startsWith("http://") || custom.startsWith("https://")) {
+        return custom;
+      }
+      if (custom.startsWith("/")) {
+        return new URL(custom, window.location.origin).toString();
+      }
+    }
+    return new URL("/api/rpc", window.location.origin).toString();
+  }, []);
+
+  const directConnection = useMemo(
+    () =>
+      new Connection(directRpcEndpoint, {
+        commitment: "confirmed",
+        wsEndpoint: undefined,
+        disableRetryOnRateLimit: true,
+      }),
+    [directRpcEndpoint]
+  );
 
   const [previewAlerts, setPreviewAlerts] = useState<WhaleAlert[]>([]);
   const [alerts, setAlerts] = useState<WhaleAlert[]>([]);
@@ -165,8 +189,7 @@ export default function WhaleAlertsPaywall() {
         .integerValue(BigNumber.ROUND_FLOOR)
         .toNumber();
 
-      // Fetch blockhash from backend endpoint to avoid connection object type errors
-      // This uses the server-side Helius RPC which handles response format correctly
+      // Fetch blockhash from backend endpoint so we reuse the server-side RPC with fallbacks
       const blockhashRes = await fetch("/api/blockhash");
       if (!blockhashRes.ok) {
         throw new Error("Failed to get blockhash from server");
@@ -174,8 +197,6 @@ export default function WhaleAlertsPaywall() {
       const { blockhash, lastValidBlockHeight } = await blockhashRes.json();
       const transaction = new Transaction({
         feePayer: publicKey,
-        blockhash,
-        lastValidBlockHeight,
       }).add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
@@ -183,6 +204,8 @@ export default function WhaleAlertsPaywall() {
           lamports,
         })
       );
+      transaction.recentBlockhash = blockhash;
+      transaction.lastValidBlockHeight = lastValidBlockHeight;
       transaction.instructions[0].keys.push({
         pubkey: referenceKey,
         isSigner: false,
@@ -193,7 +216,7 @@ export default function WhaleAlertsPaywall() {
       if (!sendTransaction) {
         throw new Error("sendTransaction not available");
       }
-      const signature = await sendTransaction(transaction, connection);
+      const signature = await sendTransaction(transaction, directConnection);
       const sigStr = signature;
       
       setStatus(`Transaction ${sigStr} submitted. Waiting for confirmation…`);
