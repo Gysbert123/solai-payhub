@@ -24,9 +24,11 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer, preferredRpc
     try {
       connection = new Connection(rpcUrl, 'confirmed');
       
-      // Send the transaction
+      // Send the transaction with skipPreflight to avoid strict blockhash validation
+      // The blockhash is already validated when we fetch it, and skipping preflight
+      // avoids the RPC rejecting it due to timing differences
       const signature = await connection.sendRawTransaction(serializedTx, {
-        skipPreflight: false, // Enable preflight to catch errors early
+        skipPreflight: true, // Skip preflight to avoid blockhash expiration issues
         maxRetries: 3,
       });
       
@@ -72,14 +74,23 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer, preferredRpc
       const errorMessage = error.message || String(error);
       console.error(`[Send TX] Failed on ${rpcUrl}:`, errorMessage);
       
-      // Check if it's a blockhash not found error - this means we should try a fresh blockhash
+      // Check if it's a blockhash not found error
       const isBlockhashError = errorMessage.includes('Blockhash not found') || 
                                errorMessage.includes('blockhash not found') ||
                                errorMessage.includes('blockhash expired');
       
-      if (isBlockhashError && rpcs.indexOf(rpcUrl) < rpcs.length - 1) {
-        console.warn(`[Send TX] Blockhash expired on ${rpcUrl}, trying next RPC...`);
-        continue;
+      if (isBlockhashError) {
+        // Blockhash expired - this can happen if there's a delay between client fetch and server send
+        // Try next RPC, but if all fail, suggest user retry (they'll get a fresh blockhash)
+        if (rpcs.indexOf(rpcUrl) < rpcs.length - 1) {
+          console.warn(`[Send TX] Blockhash expired on ${rpcUrl}, trying next RPC...`);
+          continue;
+        }
+        // All RPCs failed with blockhash error - suggest retry
+        throw new Error(
+          `Blockhash expired. Please try again - a fresh blockhash will be fetched automatically. ` +
+          `This can happen if there's a delay between signing and sending the transaction.`
+        );
       }
       
       if (rpcs.indexOf(rpcUrl) < rpcs.length - 1) {
