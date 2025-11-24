@@ -79,6 +79,50 @@ function AppContent() {
   const PROJECT_WALLET = process.env.NEXT_PUBLIC_PROJECT_WALLET;
   const SESSION_DURATION = 30 * 60 * 1000;
 
+  const fetchServerBlockhash = async () => {
+    const res = await fetch("/api/blockhash", { cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = (data && (data.message || data.error)) || `status ${res.status}`;
+      throw new Error(`Failed to get recent blockhash: ${message}`);
+    }
+    if (!data?.blockhash) {
+      throw new Error("Blockhash endpoint returned an invalid payload");
+    }
+    return data as { blockhash: string; lastValidBlockHeight?: number };
+  };
+
+  const toBase64 = (bytes: Uint8Array) => {
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(bytes).toString("base64");
+    }
+    let binary = "";
+    bytes.forEach((b) => {
+      binary += String.fromCharCode(b);
+    });
+    return btoa(binary);
+  };
+
+  const broadcastWithFallback = async (serializedTx: Uint8Array) => {
+    const res = await fetch("/api/send-tx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        transaction: toBase64(serializedTx),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const reason = data?.message || data?.error || `status ${res.status}`;
+      throw new Error(`Failed to send transaction: ${reason}`);
+    }
+    const signature = typeof data?.signature === "string" ? data.signature : null;
+    if (!signature) {
+      throw new Error("Send endpoint returned no signature");
+    }
+    return signature;
+  };
+
   const isPaid = () => {
     if (!publicKey) return false;
     const paidData = localStorage.getItem(`paid_${publicKey.toBase58()}`);
@@ -92,7 +136,7 @@ function AppContent() {
     setStatus("paying");
 
     try {
-      const { blockhash } = await connection.getLatestBlockhash();
+      const { blockhash } = await fetchServerBlockhash();
       const tx = new Transaction({
         recentBlockhash: blockhash,
         feePayer: publicKey,
@@ -106,11 +150,7 @@ function AppContent() {
 
       const signedTx = await signTransaction(tx);
       const serializedTx = signedTx.serialize();
-      const signature = await connection.sendRawTransaction(serializedTx, {
-        skipPreflight: true,
-        maxRetries: 3,
-      });
-      const sigStr = typeof signature === "string" ? signature : bs58.encode(signature);
+      const sigStr = await broadcastWithFallback(serializedTx);
 
       // Use polling confirmation instead of timeout-based confirmation
       let confirmed = false;
@@ -150,7 +190,7 @@ function AppContent() {
     if (!address || !PROJECT_WALLET) return;
 
     try {
-      const { blockhash } = await connection.getLatestBlockhash();
+      const { blockhash } = await fetchServerBlockhash();
       const tx = new Transaction({
         recentBlockhash: blockhash,
         feePayer: publicKey!,
@@ -164,12 +204,7 @@ function AppContent() {
 
       const signed = await signTransaction!(tx);
       const serializedTx = signed.serialize();
-      const signature = await connection.sendRawTransaction(serializedTx, {
-        skipPreflight: true,
-        maxRetries: 3,
-      });
-
-      const sigStr = typeof signature === "string" ? signature : bs58.encode(signature);
+      const sigStr = await broadcastWithFallback(serializedTx);
       console.log("AI Payment Tx:", sigStr);
 
       // Use polling confirmation instead of timeout-based confirmation
