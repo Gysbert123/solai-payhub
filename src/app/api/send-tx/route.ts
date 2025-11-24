@@ -76,8 +76,18 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer, preferredRpc
       
       if (!verified) {
         // Transaction might still be pending, but we got a signature so it was likely sent
+        // However, if we can't verify it after multiple attempts, there might be an issue
         // Log a warning but still return the signature - the confirmation endpoint will check it
-        console.warn(`[Send TX] Could not immediately verify transaction ${signature} on ${rpcUrl}, but signature was returned. Transaction may still be processing.`);
+        console.warn(`[Send TX] Could not immediately verify transaction ${signature} on ${rpcUrl} after 3 attempts. ` +
+          `Signature was returned by RPC, but transaction may not have been broadcast. ` +
+          `This could indicate an RPC issue or the transaction may still be processing.`);
+        
+        // If this is the last RPC and we couldn't verify, warn but still return
+        // The user can check Solscan manually
+        if (rpcs.indexOf(rpcUrl) === rpcs.length - 1) {
+          console.error(`[Send TX] WARNING: Could not verify transaction on any RPC. ` +
+            `Transaction may not have been broadcast. Signature: ${signature}`);
+        }
       }
       
       return signature;
@@ -102,6 +112,25 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer, preferredRpc
       
       const errorMessage = error.message || String(error);
       console.error(`[Send TX] Failed on ${rpcUrl}:`, errorMessage);
+      
+      // Check for API key / authentication errors
+      const isAuthError = errorMessage.includes('API key') || 
+                         errorMessage.includes('403') ||
+                         errorMessage.includes('Forbidden') ||
+                         errorMessage.includes('-32052');
+      
+      if (isAuthError) {
+        console.warn(`[Send TX] RPC authentication failed on ${rpcUrl} - trying next RPC...`);
+        if (rpcs.indexOf(rpcUrl) < rpcs.length - 1) {
+          continue;
+        }
+        // All RPCs failed with auth error
+        throw new Error(
+          `All RPC endpoints are rejecting requests (authentication/rate limit). ` +
+          `Please check your SOLANA_RPC_URL environment variable in Vercel. ` +
+          `If using a free/public RPC, you may need to upgrade to a paid plan or use a different provider.`
+        );
+      }
       
       // Check if it's a blockhash not found error
       const isBlockhashError = errorMessage.includes('Blockhash not found') || 
