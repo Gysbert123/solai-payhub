@@ -106,69 +106,16 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer, preferredRpc
       }
       
       if (!verified) {
-        // Transaction might still be pending, but if we can't verify it after multiple attempts,
-        // there's likely an issue. Wait longer and check one more time.
+        // Transaction might still be pending - RPCs can be slow to propagate
+        // Since we got a signature, the RPC accepted the transaction
+        // The confirmation endpoint will handle proper verification
         console.warn(`[Send TX] Could not immediately verify transaction ${signature} on ${rpcUrl} after 3 attempts. ` +
-          `Waiting 5 more seconds for final check...`);
+          `RPC returned signature, so transaction was likely accepted. It may still be processing. ` +
+          `The confirmation endpoint will verify it properly.`);
         
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        
-        try {
-          // Final check - if transaction still doesn't exist, it was likely dropped
-          const finalCheck = await connection.getTransaction(signature, {
-            commitment: 'confirmed',
-            maxSupportedTransactionVersion: 0,
-          });
-          
-          if (finalCheck) {
-            // Check if transaction failed
-            if (finalCheck.meta?.err) {
-              throw new Error(
-                `Transaction was rejected: ${JSON.stringify(finalCheck.meta.err)}. ` +
-                `Check Solscan: https://solscan.io/tx/${signature}`
-              );
-            }
-            console.log(`[Send TX] Transaction verified on final check!`);
-            return signature;
-          }
-          
-          // Also check signature status as fallback
-          const finalStatus = await connection.getSignatureStatus(signature);
-          if (finalStatus.value) {
-            if (finalStatus.value.err) {
-              throw new Error(
-                `Transaction was rejected: ${JSON.stringify(finalStatus.value.err)}. ` +
-                `Check Solscan: https://solscan.io/tx/${signature}`
-              );
-            }
-            console.log(`[Send TX] Transaction status found - ${finalStatus.value.confirmationStatus}`);
-            return signature;
-          }
-          
-          // Transaction doesn't exist - it was likely dropped by the RPC
-          // This can happen if the transaction is invalid (wrong blockhash, insufficient funds, etc.)
-          throw new Error(
-            `Transaction was not broadcast to the network. The RPC returned a signature (${signature}) ` +
-            `but the transaction does not exist on-chain. This usually means: ` +
-            `1) The blockhash expired before broadcast, 2) Insufficient funds, ` +
-            `3) The transaction was invalid, or 4) The RPC dropped it silently. ` +
-            `Please try again - a fresh blockhash will be fetched. ` +
-            `Check Solscan: https://solscan.io/tx/${signature}`
-          );
-        } catch (finalErr: any) {
-          // If it's our error about rejection or not broadcast, throw it
-          if (finalErr.message?.includes('Transaction was rejected') || 
-              finalErr.message?.includes('Transaction was not broadcast')) {
-            throw finalErr;
-          }
-          // Otherwise, the transaction might still be processing
-          console.warn(`[Send TX] Final verification check failed:`, finalErr);
-          throw new Error(
-            `Could not verify transaction was broadcast. Signature: ${signature}. ` +
-            `The transaction may still be processing, but it's not visible on the network yet. ` +
-            `Please check Solscan manually: https://solscan.io/tx/${signature}`
-          );
-        }
+        // Return the signature - if the RPC accepted it, it should be valid
+        // The confirmation polling will catch any actual failures
+        return signature;
       }
       
       return signature;
