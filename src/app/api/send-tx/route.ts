@@ -32,6 +32,11 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer, preferredRpc
         maxRetries: 3,
       });
       
+      // Validate signature format
+      if (!signature || typeof signature !== 'string' || signature.length < 32) {
+        throw new Error(`Invalid signature received from ${rpcUrl}: ${signature}`);
+      }
+      
       console.log(`[Send TX] Signature received from ${rpcUrl}: ${signature}`);
       
       // Verify the transaction was actually broadcast by checking if it exists
@@ -43,7 +48,7 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer, preferredRpc
       for (let verifyAttempt = 0; verifyAttempt < 3; verifyAttempt++) {
         try {
           const tx = await connection.getTransaction(signature, {
-            commitment: 'processed',
+            commitment: 'confirmed',
             maxSupportedTransactionVersion: 0,
           });
           
