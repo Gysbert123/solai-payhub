@@ -14,8 +14,9 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer): Promise<str
   let lastErrorLogs: string[] = [];
 
   for (const rpcUrl of rpcs) {
+    let connection: Connection | null = null;
     try {
-      const connection = new Connection(rpcUrl, 'confirmed');
+      connection = new Connection(rpcUrl, 'confirmed');
       
       // Send the transaction
       const signature = await connection.sendRawTransaction(serializedTx, {
@@ -47,11 +48,11 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer): Promise<str
       lastError = error;
       
       // Extract detailed logs if this is a SendTransactionError
-      if (error instanceof SendTransactionError) {
+      if (error instanceof SendTransactionError && connection) {
         try {
           // SendTransactionError has a getLogs() method that returns simulation logs
           if (typeof error.getLogs === 'function') {
-            const logs = error.getLogs();
+            const logs = await error.getLogs(connection);
             if (logs && Array.isArray(logs)) {
               lastErrorLogs = logs;
               console.error(`[Send TX] SendTransactionError logs from ${rpcUrl}:`, logs);
@@ -126,7 +127,7 @@ export async function POST(req: NextRequest) {
     let logs: string[] = [];
     if (error instanceof SendTransactionError && typeof error.getLogs === 'function') {
       try {
-        const errorLogs = error.getLogs();
+        const errorLogs = await error.getLogs(new Connection(PRIMARY_RPC ?? FALLBACK_RPCS[0], 'confirmed'));
         if (Array.isArray(errorLogs)) {
           logs = errorLogs;
         }
