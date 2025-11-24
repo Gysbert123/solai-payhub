@@ -194,18 +194,37 @@ function AgentsGatewayContent() {
   };
 
   const waitForBackendConfirmation = async (signature: string) => {
+    const solscanUrl = `https://solscan.io/tx/${signature}`;
     for (let i = 0; i < 60; i++) {
-      const res = await fetch(`/api/confirm?sig=${signature}`);
-      const data = await res.json();
-      if (data.confirmed) {
-        if (data.err) {
-          throw new Error(`Transaction failed: ${JSON.stringify(data.err)}`);
+      try {
+        const res = await fetch(`/api/confirm?sig=${signature}`);
+        const data = await res.json();
+        if (data.confirmed) {
+          if (data.err) {
+            throw new Error(`Transaction failed: ${JSON.stringify(data.err)}`);
+          }
+          return true;
         }
-        return true;
+        // Show progress every 5 seconds
+        if (i % 5 === 0 && i > 0) {
+          setStatusMessage(
+            `Transaction sent (${signature.slice(0, 8)}...). Checking confirmation... (${i}s) - ` +
+            `View on Solscan: ${solscanUrl}`
+          );
+        }
+      } catch (err: any) {
+        console.warn(`[Confirm ${i}] Request failed:`, err);
+        // Continue polling even if one request fails
       }
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-    throw new Error("Confirmation timeout - check Solscan for status.");
+    // Timeout - but transaction might still be processing
+    setStatusMessage(
+      `Confirmation timeout after 60s. Transaction may still be processing. ` +
+      `Please check manually: ${solscanUrl} ` +
+      `If it shows as confirmed, click "Check status" below to fetch the Grok response.`
+    );
+    throw new Error(`Confirmation timeout - transaction may still be processing. Check: ${solscanUrl}`);
   };
 
   const handlePayWithWallet = async () => {
@@ -256,10 +275,24 @@ function AgentsGatewayContent() {
         return { bytes: signedTx.serialize(), rpc };
       });
 
-      setStatusMessage(`Transaction sent (${signature}). Awaiting confirmation...`);
+      const solscanUrl = `https://solscan.io/tx/${signature}`;
+      setStatusMessage(
+        `Transaction sent (${signature.slice(0, 8)}...). Awaiting confirmation... ` +
+        `View on Solscan: ${solscanUrl}`
+      );
 
-      await waitForBackendConfirmation(signature);
-      setStatusMessage("Payment confirmed. Fetching Grok response...");
+      try {
+        await waitForBackendConfirmation(signature);
+        setStatusMessage("Payment confirmed. Fetching Grok response...");
+      } catch (confirmErr: any) {
+        // Confirmation timeout - but transaction might still be processing
+        // Let the user know they can check status manually
+        console.warn("Confirmation timeout, but proceeding to check status:", confirmErr);
+        setStatusMessage(
+          `Confirmation check timed out, but checking payment status anyway. ` +
+          `If the transaction is confirmed on Solscan, the Grok response should be available.`
+        );
+      }
 
       await handleCheckStatus();
     } catch (err: any) {
