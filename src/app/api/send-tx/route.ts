@@ -24,13 +24,27 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer, preferredRpc
     try {
       connection = new Connection(rpcUrl, 'confirmed');
       
-      // Send the transaction with skipPreflight to avoid strict blockhash validation
-      // The blockhash is already validated when we fetch it, and skipping preflight
-      // avoids the RPC rejecting it due to timing differences
-      const signature = await connection.sendRawTransaction(serializedTx, {
-        skipPreflight: true, // Skip preflight to avoid blockhash expiration issues
-        maxRetries: 3,
-      });
+      // Send the transaction with skipPreflight: false to catch invalid transactions early
+      // But we'll handle blockhash errors gracefully by trying the next RPC
+      let signature: string;
+      try {
+        signature = await connection.sendRawTransaction(serializedTx, {
+          skipPreflight: false, // Enable preflight to catch invalid transactions
+          maxRetries: 3,
+        });
+      } catch (preflightError: any) {
+        // If preflight fails due to blockhash, try with skipPreflight
+        const errorMsg = preflightError?.message || String(preflightError);
+        if (errorMsg.includes('Blockhash not found') || errorMsg.includes('blockhash')) {
+          console.warn(`[Send TX] Preflight failed with blockhash error on ${rpcUrl}, retrying with skipPreflight...`);
+          signature = await connection.sendRawTransaction(serializedTx, {
+            skipPreflight: true,
+            maxRetries: 3,
+          });
+        } else {
+          throw preflightError; // Re-throw if it's not a blockhash error
+        }
+      }
       
       // Validate signature format
       if (!signature || typeof signature !== 'string' || signature.length < 32) {
@@ -75,18 +89,33 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer, preferredRpc
       }
       
       if (!verified) {
-        // Transaction might still be pending, but we got a signature so it was likely sent
-        // However, if we can't verify it after multiple attempts, there might be an issue
-        // Log a warning but still return the signature - the confirmation endpoint will check it
+        // Transaction might still be pending, but if we can't verify it after multiple attempts,
+        // there's likely an issue. However, some RPCs are slow, so we'll still return the signature
+        // but log a warning. The confirmation endpoint will check it properly.
         console.warn(`[Send TX] Could not immediately verify transaction ${signature} on ${rpcUrl} after 3 attempts. ` +
-          `Signature was returned by RPC, but transaction may not have been broadcast. ` +
-          `This could indicate an RPC issue or the transaction may still be processing.`);
+          `Signature was returned by RPC. Transaction may still be processing or there may be an RPC issue.`);
         
-        // If this is the last RPC and we couldn't verify, warn but still return
-        // The user can check Solscan manually
+        // If this is the last RPC and we couldn't verify, try one more time with a longer wait
         if (rpcs.indexOf(rpcUrl) === rpcs.length - 1) {
-          console.error(`[Send TX] WARNING: Could not verify transaction on any RPC. ` +
-            `Transaction may not have been broadcast. Signature: ${signature}`);
+          console.warn(`[Send TX] Last RPC - waiting 3 more seconds and checking one final time...`);
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          try {
+            const finalCheck = await connection.getTransaction(signature, {
+              commitment: 'confirmed',
+              maxSupportedTransactionVersion: 0,
+            });
+            if (finalCheck) {
+              console.log(`[Send TX] Transaction verified on final check!`);
+              return signature;
+            }
+          } catch (finalErr) {
+            console.warn(`[Send TX] Final verification check failed:`, finalErr);
+          }
+          
+          // Still return signature - it might be valid but RPC is very slow
+          // The confirmation endpoint will handle checking it properly
+          console.warn(`[Send TX] Returning signature despite verification failure. ` +
+            `Transaction may still be processing. Signature: ${signature}`);
         }
       }
       
