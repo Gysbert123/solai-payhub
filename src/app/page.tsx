@@ -103,12 +103,14 @@ function AppContent() {
     return btoa(binary);
   };
 
-  const broadcastWithFallback = async (serializedTx: Uint8Array) => {
+  const broadcastWithFallback = async (serializeTx: () => Promise<Uint8Array>) => {
+    const txBytes = await serializeTx();
+    const base64Tx = toBase64(txBytes);
     const res = await fetch("/api/send-tx", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        transaction: toBase64(serializedTx),
+        transaction: base64Tx,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -136,9 +138,7 @@ function AppContent() {
     setStatus("paying");
 
     try {
-      const { blockhash } = await fetchServerBlockhash();
       const tx = new Transaction({
-        recentBlockhash: blockhash,
         feePayer: publicKey,
       }).add(
         SystemProgram.transfer({
@@ -148,9 +148,11 @@ function AppContent() {
         })
       );
 
-      const signedTx = await signTransaction(tx);
-      const serializedTx = signedTx.serialize();
-      const sigStr = await broadcastWithFallback(serializedTx);
+      const sigStr = await broadcastWithFallback(async () => {
+        tx.recentBlockhash = (await fetchServerBlockhash()).blockhash;
+        const signedTx = await signTransaction(tx);
+        return signedTx.serialize();
+      });
 
       // Use polling confirmation instead of timeout-based confirmation
       let confirmed = false;
@@ -190,9 +192,7 @@ function AppContent() {
     if (!address || !PROJECT_WALLET) return;
 
     try {
-      const { blockhash } = await fetchServerBlockhash();
       const tx = new Transaction({
-        recentBlockhash: blockhash,
         feePayer: publicKey!,
       }).add(
         SystemProgram.transfer({
@@ -202,9 +202,11 @@ function AppContent() {
         })
       );
 
-      const signed = await signTransaction!(tx);
-      const serializedTx = signed.serialize();
-      const sigStr = await broadcastWithFallback(serializedTx);
+      const sigStr = await broadcastWithFallback(async () => {
+        tx.recentBlockhash = (await fetchServerBlockhash()).blockhash;
+        const signed = await signTransaction!(tx);
+        return signed.serialize();
+      });
       console.log("AI Payment Tx:", sigStr);
 
       // Use polling confirmation instead of timeout-based confirmation
