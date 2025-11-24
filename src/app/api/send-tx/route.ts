@@ -8,8 +8,14 @@ const FALLBACK_RPCS = [
   'https://api.mainnet-beta.solana.com',
 ];
 
-async function sendRawTransactionWithFallback(serializedTx: Buffer): Promise<string> {
-  const rpcs = PRIMARY_RPC ? [PRIMARY_RPC, ...FALLBACK_RPCS] : FALLBACK_RPCS;
+function buildRpcList(preferredRpc?: string | null) {
+  const base = PRIMARY_RPC ? [PRIMARY_RPC, ...FALLBACK_RPCS] : [...FALLBACK_RPCS];
+  if (!preferredRpc) return base;
+  return [preferredRpc, ...base.filter((rpc) => rpc !== preferredRpc)];
+}
+
+async function sendRawTransactionWithFallback(serializedTx: Buffer, preferredRpc?: string | null): Promise<string> {
+  const rpcs = buildRpcList(preferredRpc);
   let lastError: any = null;
   let lastErrorLogs: string[] = [];
 
@@ -104,7 +110,7 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer): Promise<str
 
 export async function POST(req: NextRequest) {
   try {
-    const { transaction } = await req.json();
+    const { transaction, preferredRpc } = await req.json();
     
     if (!transaction || typeof transaction !== 'string') {
       return NextResponse.json(
@@ -117,7 +123,7 @@ export async function POST(req: NextRequest) {
     const txBuffer = Buffer.from(transaction, 'base64');
 
     // Send raw transaction via RPC fallback
-    const signature = await sendRawTransactionWithFallback(txBuffer);
+    const signature = await sendRawTransactionWithFallback(txBuffer, preferredRpc);
 
     return NextResponse.json({ signature });
   } catch (error: any) {

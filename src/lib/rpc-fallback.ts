@@ -16,6 +16,7 @@ export interface RPCResponse {
     code: number;
     message: string;
   };
+  _endpoint?: string;
 }
 
 /**
@@ -61,6 +62,8 @@ export async function fetchWithFallback(
         console.warn(`[RPC Fallback] Failed to parse response from ${rpcUrl}:`, text);
         continue; // Try next RPC
       }
+
+      data._endpoint = rpcUrl;
 
       // If rate limited (429), try next RPC
       if (response.status === 429 || (data.error && data.error.code === -32429)) {

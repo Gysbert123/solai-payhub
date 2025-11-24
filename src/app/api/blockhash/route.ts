@@ -15,10 +15,12 @@ export async function GET() {
 
     const blockhash = data.result.value.blockhash;
     const lastValidBlockHeight = data.result.value.lastValidBlockHeight;
+    const rpc = data._endpoint ?? null;
 
     return NextResponse.json({
       blockhash,
       lastValidBlockHeight,
+      rpc,
     });
   } catch (error: any) {
     console.error('Blockhash endpoint error:', error);
