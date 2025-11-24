@@ -53,10 +53,59 @@ function AgentsGatewayContent() {
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [walletPaying, setWalletPaying] = useState(false);
 
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, signTransaction } = useWallet();
   const { connection } = useConnection();
 
   const sanitizedAgentId = agentId.trim() || "anonymous";
+
+  const fetchServerBlockhash = async () => {
+    const res = await fetch("/api/blockhash", { cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = (data && (data.message || data.error)) || `status ${res.status}`;
+      throw new Error(`Failed to get recent blockhash: ${message}`);
+    }
+    if (!data?.blockhash) {
+      throw new Error("Blockhash endpoint returned an invalid payload");
+    }
+    return data as { blockhash: string; rpc?: string | null };
+  };
+
+  const toBase64 = (bytes: Uint8Array) => {
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(bytes).toString("base64");
+    }
+    let binary = "";
+    bytes.forEach((b) => {
+      binary += String.fromCharCode(b);
+    });
+    return btoa(binary);
+  };
+
+  const broadcastWithFallback = async (
+    serializeTx: () => Promise<{ bytes: Uint8Array; rpc?: string | null }>
+  ) => {
+    const { bytes, rpc } = await serializeTx();
+    const base64Tx = toBase64(bytes);
+    const res = await fetch("/api/send-tx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        transaction: base64Tx,
+        preferredRpc: rpc ?? undefined,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const reason = data?.message || data?.error || `status ${res.status}`;
+      throw new Error(`Failed to send transaction: ${reason}`);
+    }
+    const signature = typeof data?.signature === "string" ? data.signature : null;
+    if (!signature) {
+      throw new Error("Send endpoint returned no signature");
+    }
+    return signature;
+  };
 
   const handleCreateInvoice = async () => {
     setErrorMessage(null);
@@ -164,7 +213,7 @@ function AgentsGatewayContent() {
       setErrorMessage("Create an invoice first.");
       return;
     }
-    if (!publicKey || !sendTransaction) {
+    if (!publicKey || !signTransaction) {
       setErrorMessage("Connect a wallet to pay.");
       return;
     }
@@ -196,14 +245,17 @@ function AgentsGatewayContent() {
         isWritable: false,
       });
 
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized");
-      const transaction = new Transaction({
+      const tx = new Transaction({
         feePayer: publicKey,
-        blockhash,
-        lastValidBlockHeight,
       }).add(transferIx);
 
-      const signature = await sendTransaction(transaction, connection);
+      const signature = await broadcastWithFallback(async () => {
+        const { blockhash, rpc } = await fetchServerBlockhash();
+        tx.recentBlockhash = blockhash;
+        const signedTx = await signTransaction(tx);
+        return { bytes: signedTx.serialize(), rpc };
+      });
+
       setStatusMessage(`Transaction sent (${signature}). Awaiting confirmation...`);
 
       await waitForBackendConfirmation(signature);
