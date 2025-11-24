@@ -5,7 +5,8 @@ export async function GET() {
   try {
     const data = await fetchWithFallback('getLatestBlockhash', [
       {
-        commitment: 'finalized',
+        commitment: 'processed',
+        minContextSlot: undefined,
       },
     ]);
 
