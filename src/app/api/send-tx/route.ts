@@ -34,24 +34,48 @@ async function sendRawTransactionWithFallback(serializedTx: Buffer, preferredRpc
       
       console.log(`[Send TX] Signature received from ${rpcUrl}: ${signature}`);
       
-      // Verify the transaction was actually accepted by waiting a moment and checking
-      // This ensures the RPC actually broadcast it, not just returned a signature
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Verify the transaction was actually broadcast by checking if it exists
+      // Wait a moment for the transaction to propagate
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
-      try {
-        const status = await connection.getSignatureStatus(signature);
-        if (status.value) {
-          console.log(`[Send TX] Transaction confirmed on-chain using ${rpcUrl}`);
-          return signature;
+      // Try to get the transaction to verify it was actually broadcast
+      let verified = false;
+      for (let verifyAttempt = 0; verifyAttempt < 3; verifyAttempt++) {
+        try {
+          const tx = await connection.getTransaction(signature, {
+            commitment: 'processed',
+            maxSupportedTransactionVersion: 0,
+          });
+          
+          if (tx) {
+            console.log(`[Send TX] Transaction verified on-chain using ${rpcUrl}`);
+            verified = true;
+            break;
+          }
+          
+          // Try checking signature status as fallback
+          const status = await connection.getSignatureStatus(signature);
+          if (status.value) {
+            console.log(`[Send TX] Transaction status found using ${rpcUrl}`);
+            verified = true;
+            break;
+          }
+        } catch (verifyErr: any) {
+          console.warn(`[Send TX] Verify attempt ${verifyAttempt + 1} failed on ${rpcUrl}:`, verifyErr.message);
         }
-        // If status is null, transaction might still be pending - that's okay
-        console.log(`[Send TX] Transaction pending, signature: ${signature}`);
-        return signature;
-      } catch (verifyErr: any) {
-        console.warn(`[Send TX] Could not verify transaction on ${rpcUrl}:`, verifyErr.message);
-        // Still return signature - it might be valid but RPC is slow
-        return signature;
+        
+        if (verifyAttempt < 2) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       }
+      
+      if (!verified) {
+        // Transaction might still be pending, but we got a signature so it was likely sent
+        // Log a warning but still return the signature - the confirmation endpoint will check it
+        console.warn(`[Send TX] Could not immediately verify transaction ${signature} on ${rpcUrl}, but signature was returned. Transaction may still be processing.`);
+      }
+      
+      return signature;
     } catch (error: any) {
       lastError = error;
       
