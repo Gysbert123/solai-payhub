@@ -216,6 +216,22 @@ async function callGrokAPI(prompt: string): Promise<{
 
   if (!response.ok) {
     const errorText = await response.text();
+    let errorData: any = {};
+    try {
+      errorData = JSON.parse(errorText);
+    } catch {
+      // Not JSON, use raw text
+    }
+    
+    // Handle rate limiting / credit exhaustion
+    if (response.status === 429 || errorData.error?.code === -32429) {
+      throw new Error(
+        `Grok API rate limit reached (429). Your xAI account has exceeded its usage quota. ` +
+        `Please add credits to your xAI account or wait for the rate limit to reset. ` +
+        `Payment was received successfully, but the Grok response cannot be generated at this time.`
+      );
+    }
+    
     throw new Error(`Grok API error: ${response.status} ${errorText}`);
   }
 
@@ -324,9 +340,39 @@ export async function POST(req: NextRequest) {
         referenceKey
       );
 
-      // Call Grok API
-      const grokResult = await callGrokAPI(request.prompt);
-      const jupiterRec = generateJupiterRecommendation(grokResult.response);
+      // Call Grok API - payment is already confirmed, so if this fails, we still mark payment as received
+      let grokResult;
+      let jupiterRec: string | undefined;
+      try {
+        grokResult = await callGrokAPI(request.prompt);
+        jupiterRec = generateJupiterRecommendation(grokResult.response);
+      } catch (grokError: any) {
+        // Payment was successful, but Grok API failed
+        // Mark payment as confirmed but not delivered
+        console.error('[Grok Gateway] Payment confirmed but Grok API failed:', grokError);
+        
+        // Still update the request to mark payment as confirmed
+        await confirmGrokGatewayPayment({
+          reference,
+          signature,
+          grokCostUsd: '0',
+          grokResponse: `[ERROR] Grok API unavailable: ${grokError.message}`,
+          jupiterRecommendation: undefined,
+        });
+        
+        return NextResponse.json(
+          {
+            error: 'Payment received but Grok API failed',
+            message: grokError.message || 'Grok API service unavailable',
+            signature,
+            status: 'payment_confirmed_api_failed',
+            hint: 'Your payment was successful, but we could not generate a Grok response. ' +
+                  'This is usually due to rate limits or insufficient xAI credits. ' +
+                  'Please contact support or try again later.',
+          },
+          { status: 503 }
+        );
+      }
 
       // Calculate rake (for logging)
       const paymentAmountUsd = expectedAmount.multipliedBy(solPriceUsd);
